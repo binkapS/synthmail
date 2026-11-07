@@ -8,7 +8,10 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 
 #[derive(Parser, Debug)]
-#[command(name = "synth-smtp", about = "Phase 3 spike: ESMTP shim with Redis queue")]
+#[command(
+    name = "synth-smtp",
+    about = "Phase 3 spike: ESMTP shim with Redis queue"
+)]
 struct Args {
     #[arg(long, default_value = "0.0.0.0")]
     host: String,
@@ -98,7 +101,9 @@ async fn handle_client(
     forward: bool,
     postfix_host: String,
 ) -> anyhow::Result<()> {
-    let peer = stream.peer_addr().unwrap_or_else(|_| "unknown".parse().unwrap());
+    let peer = stream
+        .peer_addr()
+        .unwrap_or_else(|_| "unknown".parse().unwrap());
     stream
         .write_all(format!("220 {} SynthMail ESMTP (spike)\r\n", peer).as_bytes())
         .await?;
@@ -138,8 +143,18 @@ async fn handle_client(
                     queued_at: chrono::Utc::now(),
                 };
                 if let Ok(mut c) = redis.clone().get_multiplexed_async_connection().await {
-                    let _ = redis::AsyncCommands::set::<_, _, ()>(&mut c, format!("synth:queue:{}", queued.id), serde_json::to_string(&queued).unwrap_or_default()).await;
-                    let _ = redis::AsyncCommands::lpush::<_, _, ()>(&mut c, "synth:queue:pending", queued.id.clone()).await;
+                    let _ = redis::AsyncCommands::set::<_, _, ()>(
+                        &mut c,
+                        format!("synth:queue:{}", queued.id),
+                        serde_json::to_string(&queued).unwrap_or_default(),
+                    )
+                    .await;
+                    let _ = redis::AsyncCommands::lpush::<_, _, ()>(
+                        &mut c,
+                        "synth:queue:pending",
+                        queued.id.clone(),
+                    )
+                    .await;
                 }
                 if forward {
                     // Hybrid fallback: forward via lettre to Postfix (submission shim)
@@ -150,11 +165,27 @@ async fn handle_client(
                     tokio::spawn(async move {
                         use lettre::message::Mailbox;
                         use std::str::FromStr;
-                        let from: Mailbox = Mailbox::from_str(&from_str).unwrap_or_else(|_| Mailbox::from_str("postmaster@synthmail.invalid").unwrap());
-                        let to_rcpts: Vec<Mailbox> = rcpt_strs.iter().filter_map(|r| Mailbox::from_str(r).ok()).collect();
-                        let first_to = to_rcpts.into_iter().next().unwrap_or_else(|| Mailbox::from_str("postmaster@synthmail.invalid").unwrap());
-                        let body = if raw.is_empty() { "synth-smtp shim forward".to_string() } else { raw };
-                        if let Ok(msg) = lettre::Message::builder().from(from).to(first_to).subject("synth-smtp shim forward").body(body) {
+                        let from: Mailbox = Mailbox::from_str(&from_str).unwrap_or_else(|_| {
+                            Mailbox::from_str("postmaster@synthmail.invalid").unwrap()
+                        });
+                        let to_rcpts: Vec<Mailbox> = rcpt_strs
+                            .iter()
+                            .filter_map(|r| Mailbox::from_str(r).ok())
+                            .collect();
+                        let first_to = to_rcpts.into_iter().next().unwrap_or_else(|| {
+                            Mailbox::from_str("postmaster@synthmail.invalid").unwrap()
+                        });
+                        let body = if raw.is_empty() {
+                            "synth-smtp shim forward".to_string()
+                        } else {
+                            raw
+                        };
+                        if let Ok(msg) = lettre::Message::builder()
+                            .from(from)
+                            .to(first_to)
+                            .subject("synth-smtp shim forward")
+                            .body(body)
+                        {
                             // Best-effort relay; errors logged, queue is source of truth
                             let _ = (msg, &ph);
                         }
@@ -175,8 +206,8 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let cfg = synth_common::Config::from_env();
     let _ = cfg.validate();
-    let redis = redis::Client::open(args.redis_url.clone())
-        .map_err(|e| anyhow::anyhow!("redis: {e}"))?;
+    let redis =
+        redis::Client::open(args.redis_url.clone()).map_err(|e| anyhow::anyhow!("redis: {e}"))?;
     let listener = TcpListener::bind(format!("{}:{}", args.host, args.port)).await?;
     tracing::info!(addr = %listener.local_addr().unwrap(), "synth-smtp listening (spike)");
     let forward = args.forward_to_postfix;
@@ -201,7 +232,15 @@ mod tests {
         let mut rc = vec![];
         let mut id = false;
         let mut d = String::new();
-        let r = handle_line("1.2.3.4", "EHLO example.com", &mut mf, &mut rc, &mut id, &mut d).unwrap();
+        let r = handle_line(
+            "1.2.3.4",
+            "EHLO example.com",
+            &mut mf,
+            &mut rc,
+            &mut id,
+            &mut d,
+        )
+        .unwrap();
         assert!(r.contains("250"));
         assert!(r.contains("AUTH"));
     }
@@ -211,7 +250,15 @@ mod tests {
         let mut rc = vec![];
         let mut id = false;
         let mut d = String::new();
-        let r = handle_line("1.2.3.4", "RCPT TO: <a@b>", &mut mf, &mut rc, &mut id, &mut d).unwrap();
+        let r = handle_line(
+            "1.2.3.4",
+            "RCPT TO: <a@b>",
+            &mut mf,
+            &mut rc,
+            &mut id,
+            &mut d,
+        )
+        .unwrap();
         assert!(r.starts_with("503"));
     }
     #[test]
@@ -220,9 +267,21 @@ mod tests {
         let mut rc = vec![];
         let mut id = false;
         let mut d = String::new();
-        assert!(handle_line("h", "MAIL FROM: <a@b>", &mut mf, &mut rc, &mut id, &mut d).unwrap().starts_with("250"));
-        assert!(handle_line("h", "RCPT TO: <c@d>", &mut mf, &mut rc, &mut id, &mut d).unwrap().starts_with("250"));
-        assert!(handle_line("h", "DATA", &mut mf, &mut rc, &mut id, &mut d).unwrap().starts_with("354"));
+        assert!(
+            handle_line("h", "MAIL FROM: <a@b>", &mut mf, &mut rc, &mut id, &mut d)
+                .unwrap()
+                .starts_with("250")
+        );
+        assert!(
+            handle_line("h", "RCPT TO: <c@d>", &mut mf, &mut rc, &mut id, &mut d)
+                .unwrap()
+                .starts_with("250")
+        );
+        assert!(
+            handle_line("h", "DATA", &mut mf, &mut rc, &mut id, &mut d)
+                .unwrap()
+                .starts_with("354")
+        );
         assert!(handle_line("h", "Subject: hi", &mut mf, &mut rc, &mut id, &mut d).is_none());
         let r = handle_line("h", ".", &mut mf, &mut rc, &mut id, &mut d).unwrap();
         assert!(r.starts_with("250 QUEUED"));

@@ -30,3 +30,4 @@ jsonwebtoken.workspace = true
 clap.workspace = true
 prometheus-client.workspace = true
 rand = "0.8"
+reqwest.workspace = true

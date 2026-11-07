@@ -28,6 +28,7 @@ pub fn router(state: AppState) -> Router {
             get(get_domain).put(update_domain).delete(delete_domain),
         )
         .route("/api/v1/domains/{id}/dns", get(domain_dns))
+        .route("/api/v1/domains/{id}/verify", get(domain_verify))
         .route("/api/v1/users", get(list_users).post(create_user))
         .route(
             "/api/v1/users/{id}",
@@ -55,7 +56,15 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/admin/bans", get(list_bans))
         .route("/api/v1/config/export", get(config_export))
         .route("/api/v1/config/import", post(config_import))
-        .route("/api/v1/dmarc/reports", get(list_dmarc_reports).post(create_dmarc_report))
+        .route(
+            "/api/v1/dmarc/reports",
+            get(list_dmarc_reports).post(create_dmarc_report),
+        )
+        .route(
+            "/api/v1/push/subscribe",
+            get(list_push_subs).post(create_push_sub),
+        )
+        .route("/api/v1/push/subscribe/{id}", delete(delete_push_sub))
         .route("/api/v1/auth/totp/enroll", post(totp_enroll))
         .route("/api/v1/auth/totp/verify", post(totp_verify))
         .route("/api/v1/auth/totp/disable", post(totp_disable))
@@ -392,6 +401,83 @@ async fn domain_dns(
         "mta_sts": format!("_mta-sts TXT \"v=STSv1\""),
         "tls_rpt": format!("_smtp._tls TXT \"v=TLSRPTv1;\""),
     })))
+}
+
+async fn domain_verify(
+    State(s): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, ErrorResponse> {
+    let domain = get_domain(State(s.clone()), Path(id)).await?.0;
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .build()
+        .map_err(|_| ErrorResponse(AppError::Internal("client".into())))?;
+    let mut checks = serde_json::json!({ "domain": domain.domain, "checks": {} });
+
+    let mx = synth_common::dns_check::doh_query(&client, &domain.domain, "MX").await;
+    let mx_recs = mx
+        .as_ref()
+        .map(synth_common::dns_check::extract_mx)
+        .unwrap_or_default();
+    checks["checks"]["mx"] =
+        serde_json::json!({"ok": !mx_recs.is_empty(), "records": mx_recs.clone()});
+
+    let spf_txt = synth_common::dns_check::doh_query(&client, &domain.domain, "TXT").await;
+    let spf_recs = spf_txt
+        .as_ref()
+        .map(synth_common::dns_check::extract_txt)
+        .unwrap_or_default();
+    checks["checks"]["spf"] = serde_json::json!({"ok": synth_common::dns_check::check_spf(&spf_recs), "records": spf_recs});
+
+    let selector = domain
+        .dkim_selector
+        .clone()
+        .unwrap_or_else(|| "default".to_string());
+    let dkim_name = format!("{}._domainkey.{}", selector, domain.domain);
+    let dkim_txt = synth_common::dns_check::doh_query(&client, &dkim_name, "TXT").await;
+    let dkim_recs = dkim_txt
+        .as_ref()
+        .map(synth_common::dns_check::extract_txt)
+        .unwrap_or_default();
+    checks["checks"]["dkim"] = serde_json::json!({"ok": synth_common::dns_check::check_dkim(&dkim_recs), "selector": selector, "records": dkim_recs});
+
+    let dmarc_name = format!("_dmarc.{}", domain.domain);
+    let dmarc_txt = synth_common::dns_check::doh_query(&client, &dmarc_name, "TXT").await;
+    let dmarc_recs = dmarc_txt
+        .as_ref()
+        .map(synth_common::dns_check::extract_txt)
+        .unwrap_or_default();
+    checks["checks"]["dmarc"] = serde_json::json!({"ok": synth_common::dns_check::check_dmarc(&dmarc_recs), "records": dmarc_recs});
+
+    let sts_name = format!("_mta-sts.{}", domain.domain);
+    let sts_txt = synth_common::dns_check::doh_query(&client, &sts_name, "TXT").await;
+    let sts_recs = sts_txt
+        .as_ref()
+        .map(synth_common::dns_check::extract_txt)
+        .unwrap_or_default();
+    checks["checks"]["mta_sts"] = serde_json::json!({"ok": synth_common::dns_check::check_sts(&sts_recs), "records": sts_recs});
+
+    let rpt_name = format!("_smtp._tls.{}", domain.domain);
+    let rpt_txt = synth_common::dns_check::doh_query(&client, &rpt_name, "TXT").await;
+    let rpt_recs = rpt_txt
+        .as_ref()
+        .map(synth_common::dns_check::extract_txt)
+        .unwrap_or_default();
+    checks["checks"]["tls_rpt"] = serde_json::json!({"ok": synth_common::dns_check::check_tls_rpt(&rpt_recs), "records": rpt_recs});
+
+    // Overall verdict
+    let c = &checks["checks"];
+    let all_ok = c["mx"]["ok"].as_bool().unwrap_or(false)
+        && c["spf"]["ok"].as_bool().unwrap_or(false)
+        && c["dkim"]["ok"].as_bool().unwrap_or(false)
+        && c["dmarc"]["ok"].as_bool().unwrap_or(false);
+    checks["deliverable"] = serde_json::json!(all_ok);
+    checks["score_hint"] = if all_ok {
+        serde_json::json!("ready for mail-tester.com")
+    } else {
+        serde_json::json!("fix failing checks, then verify at mail-tester.com")
+    };
+    Ok(Json(checks))
 }
 
 // ---------- Users ----------
@@ -1026,7 +1112,9 @@ struct DmarcCreate {
     #[serde(default = "default_report_type")]
     report_type: String,
 }
-fn default_report_type() -> String { "aggregate".to_string() }
+fn default_report_type() -> String {
+    "aggregate".to_string()
+}
 
 async fn create_dmarc_report(
     State(s): State<AppState>,
@@ -1038,7 +1126,9 @@ async fn create_dmarc_report(
     sqlx::query("INSERT INTO dmarc_reports (id, domain, report_id, xml, report_type) VALUES ($1,$2,$3,$4,$5)")
         .bind(id).bind(&req.domain.to_lowercase()).bind(&req.report_id).bind(&req.xml).bind(&req.report_type)
         .execute(&s.pool).await.map_err(|e| ErrorResponse(AppError::Database(e)))?;
-    Ok(Json(serde_json::json!({"id": id, "domain": req.domain, "report_id": req.report_id})))
+    Ok(Json(
+        serde_json::json!({"id": id, "domain": req.domain, "report_id": req.report_id}),
+    ))
 }
 
 async fn list_dmarc_reports(
@@ -1056,6 +1146,59 @@ async fn list_dmarc_reports(
     Ok(Json(rows.into_iter().map(|(id, domain, report_id, report_type, at)| {
         serde_json::json!({"id": id, "domain": domain, "report_id": report_id, "report_type": report_type, "created_at": at})
     }).collect()))
+}
+
+#[derive(Debug, Deserialize)]
+struct PushSubReq {
+    endpoint: String,
+    p256dh: String,
+    auth: String,
+}
+
+async fn create_push_sub(
+    State(s): State<AppState>,
+    Json(req): Json<PushSubReq>,
+) -> Result<Json<serde_json::Value>, ErrorResponse> {
+    // Resolve user via first admin for Phase 4 kickoff; full JWT linkage in Phase 5
+    let user_id: Uuid = sqlx::query_scalar("SELECT id FROM users ORDER BY created_at LIMIT 1")
+        .fetch_optional(&s.pool)
+        .await
+        .map_err(|e| ErrorResponse(AppError::Database(e)))?
+        .ok_or_else(|| ErrorResponse(AppError::NotFound("user".into())))?;
+    let id = Uuid::new_v4();
+    sqlx::query("INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth) VALUES ($1,$2,$3,$4,$5)")
+        .bind(id).bind(user_id).bind(&req.endpoint).bind(&req.p256dh).bind(&req.auth)
+        .execute(&s.pool).await.map_err(|e| ErrorResponse(AppError::Database(e)))?;
+    Ok(Json(
+        serde_json::json!({"id": id, "endpoint": req.endpoint}),
+    ))
+}
+
+async fn list_push_subs(
+    State(s): State<AppState>,
+) -> Result<Json<Vec<serde_json::Value>>, ErrorResponse> {
+    let rows: Vec<(Uuid, String)> =
+        sqlx::query_as("SELECT id, endpoint FROM push_subscriptions ORDER BY created_at DESC")
+            .fetch_all(&s.pool)
+            .await
+            .map_err(|e| ErrorResponse(AppError::Database(e)))?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|(id, endpoint)| serde_json::json!({"id": id, "endpoint": endpoint}))
+            .collect(),
+    ))
+}
+
+async fn delete_push_sub(
+    State(s): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, ErrorResponse> {
+    sqlx::query("DELETE FROM push_subscriptions WHERE id=$1")
+        .bind(id)
+        .execute(&s.pool)
+        .await
+        .map_err(|e| ErrorResponse(AppError::Database(e)))?;
+    Ok(Json(serde_json::json!({"deleted": id})))
 }
 
 // ---------- Well-known ----------

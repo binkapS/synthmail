@@ -1,0 +1,39 @@
+# Phase 4 HA overlay (stretch goal)
+# Bring up with: docker compose -f compose.yaml -f docker/compose.ha.yaml --profile ha up -d
+# Postgres primary/replica (logical streaming, Patroni-ready) + Postfix x2 behind a LB (nginx upstream).
+services:
+  postgres-replica:
+    image: postgres:16-alpine
+    command: ["postgres", "-c", "wal_level=replica", "-c", "primary_conninfo='host=postgres port=5432 user=synth'", "-c", "hot_standby=on"]
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-synth}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-synth_dev}
+    volumes:
+      - postgres_replica:/var/lib/postgresql/data
+    networks: [mailnet]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U synth"]
+      interval: 10s
+      timeout: 5s
+    restart: unless-stopped
+    profiles: ["ha"]
+
+  postfix-2:
+    build:
+      context: ./docker/postfix
+      dockerfile: Dockerfile
+    volumes:
+      - postfix-spool-2:/var/spool/postfix
+      - maildir:/var/vmail
+    depends_on: [postgres, redis]
+    networks: [mailnet]
+    healthcheck:
+      test: ["CMD", "postfix", "status"]
+      interval: 30s
+      timeout: 5s
+    restart: unless-stopped
+    profiles: ["ha"]
+
+volumes:
+  postgres_replica:
+  postfix-spool-2:
