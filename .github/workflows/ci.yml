@@ -32,8 +32,8 @@ jobs:
       matrix: { target: ["linux/amd64", "linux/arm64"] }
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
       - run: docker buildx build --platform ${{ matrix.target }} -f docker/synth-control/Dockerfile --push=false .
       - run: docker buildx build --platform ${{ matrix.target }} -f docker/synth-webmail/Dockerfile --push=false .
   smoke:
