@@ -50,8 +50,6 @@ services:
     volumes:
       - maildir:/var/vmail
       - certs:/etc/letsencrypt
-      - ./docker/dovecot/dovecot.conf:/etc/dovecot/dovecot.conf:ro
-      - ./docker/dovecot/sql.conf:/etc/dovecot/dovecot-sql.conf.ext:ro
     environment:
       - DATABASE_URL=${DATABASE_URL:-postgres://synth:synth_dev@postgres:5432/synthmail}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-synth_dev}
