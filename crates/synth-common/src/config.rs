@@ -71,6 +71,9 @@ fn default_min_password_len() -> usize {
 
 impl std::default::Default for Config {
     fn default() -> Self {
+        // NOTE: deliberately no default SESSION_SECRET — production deployments
+        // must supply one (see validate()). Only :memory:-less dev flows that
+        // override the secret themselves may construct Config directly.
         Self {
             host: default_host(),
             port: default_port(),

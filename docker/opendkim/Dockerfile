@@ -17,5 +17,6 @@ RUN mkdir -p /etc/opendkim/keys /run/opendkim \
         > /etc/opendkim/TrustedHosts \
     && chown -R opendkim:opendkim /etc/opendkim /run/opendkim
 EXPOSE 8892
-ENTRYPOINT ["/usr/sbin/opendkim", "-f", "-c", "/etc/opendkim.conf"]
+# NOTE: opendkim's config-file flag is -x (-c means canonicalization).
+ENTRYPOINT ["/usr/sbin/opendkim", "-f", "-x", "/etc/opendkim.conf"]
 HEALTHCHECK CMD bash -c 'exec 3<>/dev/tcp/127.0.0.1/8892' 2>/dev/null || exit 1

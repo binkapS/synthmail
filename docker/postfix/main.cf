@@ -7,6 +7,8 @@ mynetworks = 127.0.0.0/8 [::ffff:127.0.0.0]/104 [::1]/128 172.16.0.0/12
 inet_interfaces = all
 inet_protocols = ipv4
 mydestination = $myhostname, localhost.$mydomain, localhost, $mydomain
+# File logging via postlogd (no syslog daemon in containers); fail2ban tails this.
+maillog_file = /var/log/postfix.log
 virtual_mailbox_domains = pgsql:/etc/postfix/pgsql/virtual_domains.cf
 virtual_mailbox_maps = pgsql:/etc/postfix/pgsql/virtual_mailboxes.cf
 virtual_alias_maps = pgsql:/etc/postfix/pgsql/virtual_aliases.cf
