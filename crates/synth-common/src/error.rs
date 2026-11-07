@@ -39,8 +39,6 @@ impl AppError {
         }
     }
 
-    /// Server-side detail for logging. Internal errors are only logged, never
-    /// returned to clients (M-07: error responses must not leak SQL/schema).
     fn server_detail(&self) -> String {
         self.to_string()
     }
@@ -68,7 +66,6 @@ pub struct ErrorResponse(pub AppError);
 impl IntoResponse for ErrorResponse {
     fn into_response(self) -> Response {
         let err = self.0;
-        // Log full detail server-side; the response body is redacted for 5xx.
         match &err {
             AppError::Database(_) | AppError::Internal(_) => {
                 tracing::error!(detail = %err.server_detail(), "returning 5xx to client");

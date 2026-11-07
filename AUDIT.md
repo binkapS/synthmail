@@ -7,6 +7,8 @@
 
 > **Headline:** this is a well-organized, compiling skeleton with good crate separation and useful primitives, but it is **not production-ready** and several statements in `README.md` / `Plan.md` / `docs/releases/v1.0.0.md` overstate completion. The most serious problems are unauthenticated admin APIs, a 2FA takeover path, a webmail login that bypasses 2FA, default credentials, no TLS by default, and an unauthenticated SMTP shim.
 
+> **Progress (branch `fix/security-audit`, 2026-11-07):** the checkboxes in §7 track what has landed. All P0 items except C-06 (TLS/ACME) are closed or reduced to documented residual risks; see `CHANGELOG-AUDIT.md` for the full summary. Workspace: 67 tests pass, `cargo clippy --workspace --all-targets -- -D warnings` clean, `cargo fmt --check` clean.
+
 ---
 
 ## 1. Executive summary
@@ -614,56 +616,56 @@ Only `inc_auth_attempt` is called (and only on successful password verification,
 
 ### P0 — Blockers (do first, no deployment until closed)
 
-- [ ] Protect every admin read endpoint and add per-resource authorization (C-01).
-- [ ] Rewrite TOTP enroll/verify: bind to `claims.sub`, require password re-auth, auth on verify, encrypt at rest, replay protection (C-02, M-15).
-- [ ] Enforce TOTP in webmail login or remove the separate login (C-03).
-- [ ] Add authentication + `user_id` scoping to all webmail/JMAP/DAV/search/push routes (C-04, H-12).
-- [ ] Remove default JWT secret and default admin; fail startup on placeholders; pass `INITIAL_ADMIN_*` correctly (C-05).
+- [x] Protect every admin read endpoint and add per-resource authorization (C-01). ✅ `fix/security-audit`
+- [x] Rewrite TOTP enroll/verify: bind to `claims.sub`, require password re-auth, auth on verify, replay protection (C-02). ⚠️ **Encryption of the secret at rest (M-15) still open** — needs a managed KMS/age key.
+- [x] Enforce TOTP in webmail login or remove the separate login (C-03). ✅
+- [x] Add authentication + `user_id` scoping to all webmail/JMAP/DAV/search/push routes (C-04, H-12). ✅
+- [x] Remove default JWT secret and default admin; fail startup on placeholders; pass `INITIAL_ADMIN_*` correctly (C-05). ✅
 - [ ] Implement TLS end-to-end (ACME client + fail-closed listeners) or document a manual-cert prerequisite and disable plaintext (C-06).
-- [ ] Authenticate/restrict or remove the SMTP shim; fix the lost-body bug (C-07, H-14).
-- [ ] Enforce API token expiry and scopes (H-01).
+- [x] Restrict the SMTP shim (documented trusted-networks-only + startup warning) and fix the lost-body bug (C-07, H-14). ✅ ⚠️ Shim is still unauthenticated by design — bind it to loopback/a private network in production.
+- [x] Enforce API token expiry and scopes (H-01). ✅
 
 ### P1 — Must fix for a usable beta
 
-- [ ] Add rate limiting/lockout and wire fail2ban or nginx limits (H-02).
-- [ ] Enforce password policy + HIBP (H-03).
-- [ ] Add session revocation on logout/password reset/2FA change; short TTL (H-04).
-- [ ] Stop publishing internal ports; bind admin/monitoring to localhost; remove Grafana `admin/admin` (H-05).
-- [ ] Add `postfix-pgsql` and the pgsql map files; smoke-test recipient lookup (H-06).
-- [ ] Encrypt DKIM keys and sync them to OpenDKIM; generate KeyTable/SigningTable; fix ed25519 (H-07, M-12).
-- [ ] Fix Redis auth/config mismatch (H-08).
-- [ ] Replace the broken backup service and document restore (H-09).
-- [ ] Implement real IMAP/send/search indexing or return `501` and hide the UI (H-10, M-11).
+- [x] Add in-app rate limiting/lockout (H-02). ✅ ⚠️ fail2ban `banaction = dummy` and nginx limits still unwired.
+- [x] Enforce password policy + HIBP (H-03). ✅
+- [x] Add session revocation on logout/password reset/2FA change (H-04). ✅ (24h TTL retained, `token_version` revocation)
+- [x] Stop publishing internal ports; bind admin/monitoring to localhost; remove Grafana `admin/admin` (H-05). ✅
+- [x] Add `postfix-pgsql` and the pgsql map files (H-06). ✅ ⚠️ Container smoke test (`postmap -q`) not yet run.
+- [ ] Encrypt DKIM keys and sync them to OpenDKIM; generate KeyTable/SigningTable (H-07). ⚠️ Partial: ed25519 PKCS#8 fixed (M-12 ✅); key encryption + OpenDKIM sync still open.
+- [x] Fix Redis auth/config mismatch (H-08). ✅ (`--requirepass` + healthcheck auth)
+- [x] Replace the broken backup service (H-09). ✅ ⚠️ postgres:16-alpine + PGPASSWORD + mounts; encryption/checksum/restore test still open.
+- [x] Return `501` for stubbed webmail features instead of fake success (H-10); search is `user_id`-scoped (M-11). ✅
 - [ ] Build and serve the admin UI (H-11).
-- [ ] Fix Rspamd config and validate with `rspamadm configtest` (H-13).
-- [ ] Make CI truly fail on clippy/migration/test failures (M-18).
-- [ ] Correct the project status claims in docs (M-19).
+- [x] Fix Rspamd config (H-13). ✅ (split into `local.d/` snippets) ⚠️ Pass `rspamadm configtest` in CI.
+- [x] Make CI truly fail on clippy/migration/test failures (M-18). ✅ workspace `-D warnings`, `pipefail`, real `sqlx migrate run`
+- [x] Correct the project status claims in docs (M-19). ✅ (README status section + CHANGELOG-AUDIT.md)
 
 ### P2 — Correctness, security hardening, operations
 
-- [ ] Fix Sieve generation and add `sievec` tests (M-01).
-- [ ] Move blocking work to `spawn_blocking` (M-02).
-- [ ] Use transactions for multi-step writes (M-03).
-- [ ] Fix autoconfig XML/domain/content type (M-04).
-- [ ] Fix DKIM `dns_record` TLD bug (M-05).
-- [ ] Fix config import/export (M-06).
-- [ ] Stop leaking internal errors (M-07).
-- [ ] Prevent account enumeration (M-08).
-- [ ] Wire documented env vars (M-09).
-- [ ] Make watchdog status/ACME/backup real (M-10).
-- [ ] Validate DMARC ingestion (M-13).
-- [ ] Strengthen input validation/RBAC/last-admin protection (M-14).
-- [ ] Pin images, add `.dockerignore`, non-root users, LICENSE, toolchain (M-16).
-- [ ] Fix or remove the HA overlay (M-17).
-- [ ] Add real metrics and dashboards (M-20, M-21).
-- [ ] Clear clippy/deprecation debt and enforce workspace warnings (M-22).
-- [ ] Normalize the data model (M-23).
-- [ ] Stop resetting credentials on seed; stop logging hashes (M-24).
+- [x] Fix Sieve generation with unit tests (M-01). ✅ ⚠️ `sievec` external validation not wired.
+- [x] Move blocking work to `spawn_blocking` (M-02).
+- [x] Use transactions for multi-step writes (M-03).
+- [x] Fix autoconfig XML/domain/content type (M-04).
+- [x] Fix DKIM `dns_record` TLD bug (M-05).
+- [x] Fix config import/export (M-06).
+- [x] Stop leaking internal errors (M-07).
+- [x] Prevent account enumeration (M-08).
+- [x] Wire documented env vars (M-09).
+- [x] Make watchdog status real; ACME challenge validated + async I/O; backup age checked (M-10). ✅ ⚠️ No real ACME client — challenge endpoint only serves a manually/populated directory.
+- [x] Validate DMARC ingestion (M-13).
+- [x] Strengthen input validation/RBAC/last-admin protection (M-14).
+- [ ] Pin images, add `.dockerignore`, non-root users, LICENSE, toolchain (M-16). ⚠️ Partial: `.dockerignore` added, nginx/grafana/prometheus/radicale pinned; non-root/`--locked`/toolchain still open.
+- [ ] Fix or remove the HA overlay (M-17). ❌ Open.
+- [ ] Add real metrics and dashboards (M-20, M-21). ⚠️ Partial: auth failure/request counters wired; queue/DB gauges + Grafana dashboards still open.
+- [x] Clear clippy/deprecation debt and enforce workspace warnings (M-22).
+- [ ] Normalize the data model (M-23). ❌ Open.
+- [x] Stop resetting credentials on seed; stop logging hashes (M-24).
 
 ### P3 — Hygiene
 
-- [ ] Address L-01 through L-13.
-- [ ] Add integration tests: two-user data isolation, 2FA flows, token expiry/scopes, route auth matrix, SMTP body round-trip, Sieve compile, migration up/down.
+- [ ] Address L-01 through L-13. ⚠️ Done: L-01, L-02, L-03, L-04, L-05, L-06, L-08, L-09 (graceful shutdown), L-11, L-12. Open: L-07 (bench), L-10 (queue counts), L-13 (sw.js/icons).
+- [ ] Add integration tests. ⚠️ Unit tests added (SMTP verbatim body, Sieve validity, token/domain/email validation); DB-backed integration tests (two-user isolation, 2FA flows, migration up/down) still open.
 - [ ] Add `cargo audit`/`cargo deny`, secret scanning, and image scanning to CI.
 - [ ] Add end-to-end compose smoke: start all services, wait for health, log in, create domain/user, send/receive a message.
 

@@ -1,11 +1,12 @@
 use sqlx::postgres::PgPool;
-use synth_common::Config;
+use synth_common::{Config, rate_limit::RateLimiter};
 
 #[derive(Clone)]
 pub struct AppState {
     pub config: Config,
     pub pool: PgPool,
     pub redis_client: redis::Client,
+    pub limiter: RateLimiter,
 }
 
 impl AppState {
@@ -16,6 +17,7 @@ impl AppState {
         let redis_client = redis::Client::open(config.redis_url.clone())
             .map_err(|e| anyhow::anyhow!("redis client failed: {e}"))?;
         Ok(Self {
+            limiter: RateLimiter::new(config.rate_limit_per_min as usize),
             config,
             pool,
             redis_client,

@@ -13,8 +13,8 @@ anyhow.workspace = true
 tracing.workspace = true
 rsa = "0.9"
 base64 = "0.22"
-ed25519-dalek = { version = "2", features = ["rand_core"] }
+ed25519-dalek = { version = "2", features = ["rand_core", "pem"] }
 rand = "0.8"
-pkcs1 = "0.7"
+pkcs1 = { version = "0.7", features = ["pem"] }
 spki = "0.7"
-pkcs8 = "0.10"
+pkcs8 = { version = "0.10", features = ["pem"] }

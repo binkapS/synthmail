@@ -1,0 +1,7 @@
+# Postfix virtual_alias_maps — address aliases (audit H-06).
+# Exact-address lookup; add catch-all handling if needed.
+hosts = postgres
+dbname = synthmail
+user = synth
+password = ${POSTGRES_PASSWORD}
+query = SELECT goto FROM aliases WHERE address = '%s' AND active = true

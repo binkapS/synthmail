@@ -55,9 +55,8 @@ async fn main() -> anyhow::Result<()> {
         db::seed_admin(&state.pool).await?;
     } else {
         // Check if admin exists; if none, create from env
-        match db::seed_admin_if_empty(&state.pool).await {
-            Ok(true) => tracing::info!("seeded initial admin from env"),
-            _ => {}
+        if let Ok(true) = db::seed_admin_if_empty(&state.pool).await {
+            tracing::info!("seeded initial admin from env")
         }
     }
 
@@ -65,6 +64,11 @@ async fn main() -> anyhow::Result<()> {
         tokio::net::TcpListener::bind(format!("{}:{}", state.config.host, state.config.port))
             .await?;
     tracing::info!(addr = %listener.local_addr().unwrap(), "synth-control listening");
-    axum::serve(listener, routes::router(state)).await?;
+    // L-09: graceful shutdown on SIGINT/SIGTERM.
+    axum::serve(listener, routes::router(state))
+        .with_graceful_shutdown(async {
+            let _ = tokio::signal::ctrl_c().await;
+        })
+        .await?;
     Ok(())
 }

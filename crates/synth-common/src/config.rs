@@ -31,16 +31,12 @@ pub struct Config {
     pub webmail_url: String,
     #[serde(default)]
     pub admin_url: String,
-    /// In-app rate limit applied to auth/admin endpoints (requests per minute).
     #[serde(default = "default_rate_limit_per_min")]
     pub rate_limit_per_min: u32,
-    /// Breached-password (HIBP k-anonymity) checks on credential changes.
     #[serde(default)]
     pub hibp_enabled: bool,
-    /// Require TOTP for admin-kind accounts at login.
     #[serde(default = "default_totp_enforced_for_admin")]
     pub totp_enforced_for_admin: bool,
-    /// Minimum accepted password length for create/reset/change.
     #[serde(default = "default_min_password_len")]
     pub min_password_len: usize,
 }
@@ -104,7 +100,6 @@ impl std::default::Default for Config {
 impl Config {
     pub fn from_env() -> Self {
         let mut cfg = Self::default();
-
         if let Ok(v) = std::env::var("HOST") {
             cfg.host = v;
         }
@@ -159,7 +154,8 @@ impl Config {
             cfg.rate_limit_per_min = p;
         }
         if let Ok(v) = std::env::var("HIBP_ENABLED") {
-            cfg.hibp_enabled = v.eq_ignore_ascii_case("true") || v == "1" || v.eq_ignore_ascii_case("yes");
+            cfg.hibp_enabled =
+                v.eq_ignore_ascii_case("true") || v == "1" || v.eq_ignore_ascii_case("yes");
         }
         if let Ok(v) = std::env::var("TOTP_ENFORCED_FOR_ADMIN") {
             cfg.totp_enforced_for_admin =
@@ -170,13 +166,10 @@ impl Config {
         {
             cfg.min_password_len = p;
         }
-
         cfg
     }
 
     pub fn validate(&self) -> Result<(), String> {
-        // SESSION_SECRET must be supplied, long enough, and must NOT equal a
-        // known placeholder (dev defaults, compose fallbacks, docs examples).
         if self.session_secret.is_empty() {
             return Err("SESSION_SECRET is required (no default secret is accepted)".to_string());
         }
@@ -207,11 +200,9 @@ mod tests {
     use super::*;
     #[test]
     fn default_config_requires_secret() {
-        // Default (unset SESSION_SECRET) must NOT validate — deployments must
-        // supply a real secret (C-05: no default/known secrets).
         let cfg = Config::default();
         assert!(cfg.validate().is_err());
-        assert!(cfg.mail_host == "mail.example.com");
+        assert_eq!(cfg.mail_host, "mail.example.com");
     }
     #[test]
     fn rejects_short_secret() {
@@ -248,7 +239,6 @@ mod tests {
     }
     #[test]
     fn env_roundtrip() {
-        // M-09: documented env vars are read by from_env
         unsafe {
             std::env::set_var("SESSION_SECRET", "0123456789abcdef0123456789abcdef-cust");
             std::env::set_var("CONTROL_URL", "https://control/api");

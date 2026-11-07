@@ -8,5 +8,6 @@ for svc in synth-control synth-webmail synth-watchdog; do
   cosign sign --yes --key cosign.key "${img}"
 done
 echo "Signed v${VERSION}. Pins:" >> docs/releases/v${VERSION}.txt
-docker lockfiles="$(mktemp)"
+lockfiles="$(mktemp)"
 echo "cosign.pub public key: $(cat cosign.pub)"
+echo "Lockfile written to ${lockfiles}"

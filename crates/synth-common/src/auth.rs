@@ -6,8 +6,6 @@ use serde::{Deserialize, Serialize};
 
 pub const TOKEN_ISSUER: &str = "synthmail";
 pub const TOKEN_AUDIENCE: &str = "synthmail";
-
-/// Session-token lifetime (H-04: short-lived bearer tokens).
 pub const SESSION_TTL_HOURS: i64 = 24;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,8 +15,6 @@ pub struct ClaimsData {
     pub kind: String,
     pub iat: u64,
     pub exp: u64,
-    /// Token version: bumped on logout/password reset/2FA change so existing
-    /// JWTs are rejected (H-04 revocation). 0 = legacy token without version.
     #[serde(default)]
     pub tv: u64,
     #[serde(default)]
@@ -40,10 +36,7 @@ pub fn verify_password(hash: &str, plain: &str) -> bool {
         Ok(parsed) => Argon2::default()
             .verify_password(plain.as_bytes(), &parsed)
             .is_ok(),
-        Err(_) => {
-            // Fallback: support dovecot {scram-sha-256} marker pass-through (no verify here)
-            false
-        }
+        Err(_) => false,
     }
 }
 
@@ -113,16 +106,26 @@ mod tests {
     }
     #[test]
     fn token_rejects_wrong_secret() {
-        let t = create_session_token("0123456789abcdef0123456789abcdef00", "u1", "a@b.c", "user", 0)
-            .unwrap();
-        assert!(
-            decode_session_token("ffffffffffffffffffffffffffffffff00", &t).is_err()
-        );
+        let t = create_session_token(
+            "0123456789abcdef0123456789abcdef00",
+            "u1",
+            "a@b.c",
+            "user",
+            0,
+        )
+        .unwrap();
+        assert!(decode_session_token("ffffffffffffffffffffffffffffffff00", &t).is_err());
     }
     #[test]
     fn token_is_24h() {
-        let t = create_session_token("0123456789abcdef0123456789abcdef00", "u1", "a@b.c", "user", 0)
-            .unwrap();
+        let t = create_session_token(
+            "0123456789abcdef0123456789abcdef00",
+            "u1",
+            "a@b.c",
+            "user",
+            0,
+        )
+        .unwrap();
         let d = decode_session_token("0123456789abcdef0123456789abcdef00", &t).unwrap();
         assert_eq!(d.exp - d.iat, (SESSION_TTL_HOURS as u64) * 3600);
     }

@@ -30,6 +30,36 @@ See [`AUDIT.md`](AUDIT.md) for file/line evidence, impact, and remediation steps
 
 ---
 
+## Status / Known limitations
+
+> **Pre-production — not GA, not for public internet deployment.** The
+> current branch/`fix/security-audit` work hardens deployment, CI, and docs
+> but does not make this stack production-ready. Several advertised features
+> are still stubbed, partial, or unreachable.
+
+Stubbed / incomplete today:
+
+- **Webmail IMAP / send / search:** `synth-webmail` list/fetch/send returns
+  empty or fake `queued` responses; IMAP and SMTP submission are not wired
+  (audit C-04, H-10, M-11).
+- **ACME / TLS:** no ACME client ships (audit C-06). Dovecot/Postfix/edge
+  only serve TLS when certificates already exist at
+  `/etc/letsencrypt/live/mail.example.com/`; provision them manually or
+  fail closed before any real deployment.
+- **Backup tooling:** the compose `backup` service now runs a
+  `postgres:16-alpine`-based `pg_dump` + tar job, but there is no
+  encrypted, checksummed, restore-tested backup pipeline yet (audit H-09).
+- **DKIM signing sync:** keys are generated in `synth-control` but are not
+  synced to OpenDKIM (`KeyTable`/`SigningTable` remain empty), so outbound
+  mail is unsigned (audit H-07).
+- **Admin UI (`synth-ui`):** Leptos demo markup only; not built with Trunk
+  or served by edge/webmail (audit H-11).
+
+See [`CHANGELOG-AUDIT.md`](CHANGELOG-AUDIT.md) for the deployment/CI/docs
+fixes landed on this branch and the residual risks that remain open.
+
+---
+
 ## Quick start (local development only)
 
 ```bash

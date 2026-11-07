@@ -1,0 +1,7 @@
+# Postfix virtual_mailbox_domains — one row per active hosted domain (audit H-06).
+# Password is substituted by the image entrypoint from $POSTGRES_PASSWORD.
+hosts = postgres
+dbname = synthmail
+user = synth
+password = ${POSTGRES_PASSWORD}
+query = SELECT domain FROM domains WHERE active = true

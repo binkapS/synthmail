@@ -80,14 +80,13 @@ pub fn verify(secret: &str, code: &str, time_secs: u64) -> bool {
     verify_with_step(secret, code, time_secs).is_some()
 }
 
-/// Verify and return the HOTP counter step that matched, so callers can store
-/// it in `last_used_step` and reject replays of the same code (L-01, C-02).
+/// Verify and return the HOTP counter step that matched (L-01 replay protection).
 pub fn verify_with_step(secret: &str, code: &str, time_secs: u64) -> Option<u64> {
     if code.len() != 6 || !code.chars().all(|c| c.is_ascii_digit()) {
         return None;
     }
     for delta in [0i64, 1, -1] {
-        let t = (time_secs as i64 + delta).try_into().ok()?;
+        let t: u64 = (time_secs as i64 + delta).try_into().ok()?;
         if let Ok(expected) = totp_for(secret, t)
             && expected == code
         {

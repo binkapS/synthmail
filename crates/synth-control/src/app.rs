@@ -6,10 +6,7 @@ pub struct AppState {
     pub config: Config,
     pub pool: PgPool,
     pub redis_client: redis::Client,
-    /// In-app rate limiter for auth endpoints (H-02). A shared instance means
-    /// the limit holds across all worker tasks on this process.
     pub limiter: RateLimiter,
-    /// Stricter limiter for password/2FA-sensitive endpoints.
     pub tight_limiter: RateLimiter,
 }
 

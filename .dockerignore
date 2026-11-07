@@ -1,0 +1,5 @@
+# Build-context hygiene (audit M-16)
+target/
+.git/
+.env
+*.local

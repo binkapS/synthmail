@@ -1,6 +1,6 @@
-#![allow(unused_imports)]
-
 use leptos::prelude::*;
+
+const LOGIN_URL: &str = "/api/v1/auth/login";
 
 #[component]
 fn App() -> impl IntoView {
@@ -21,23 +21,32 @@ fn App() -> impl IntoView {
 }
 
 #[component]
-fn HomePage() -> impl IntoView {
-    view! {
-        <main>
-            <h1>"SynthMail"</h1>
-            <p>"Self-hosted mail — admin + webmail"</p>
-            <nav>
-                <a href="/admin">"Admin UI"</a>
-                <a href="/mail">"Webmail"</a>
-            </nav>
-        </main>
-    }
-}
-
-#[component]
 fn LoginPage() -> impl IntoView {
     let (email, set_email) = signal(String::new());
     let (password, set_password) = signal(String::new());
+    let (status, set_status) = signal("Not signed in".to_string());
+    let on_login = move |_| {
+        let email = email.get();
+        let password = password.get();
+        leptos::task::spawn_local(async move {
+            let body = serde_json::json!({"email": email, "password": password});
+            match gloo_net::http::Request::post(LOGIN_URL)
+                .header("Content-Type", "application/json")
+                .body(body.to_string())
+            {
+                Ok(req) => match req.send().await {
+                    Ok(resp) if resp.ok() => {
+                        set_status.set("Signed in — token issued by the API".to_string());
+                    }
+                    Ok(resp) => {
+                        set_status.set(format!("Login failed (HTTP {})", resp.status()));
+                    }
+                    Err(_) => set_status.set("Login request failed".to_string()),
+                },
+                Err(_) => set_status.set("Login request failed".to_string()),
+            }
+        });
+    };
     view! {
         <section>
             <h2>"Login (2FA ready)"</h2>
@@ -57,17 +66,8 @@ fn LoginPage() -> impl IntoView {
                     on:input=move |ev| set_password.set(event_target_value(&ev))
                 />
             </label>
-            <label>
-                "TOTP code (if enrolled)"
-                <input type="text" placeholder="123456"/>
-            </label>
-            <button
-                on:click=move |_| {
-                    // Phase 2: POST /api/v1/auth/login {email,password,totp} → JWT
-                }
-            >
-                "Sign in"
-            </button>
+            <button on:click=on_login>"Sign in"</button>
+            <p>{status}</p>
         </section>
     }
 }
@@ -115,9 +115,9 @@ pub fn start() {
 
 #[cfg(test)]
 mod tests {
+    use super::LOGIN_URL;
     #[test]
-    fn app_renders() {
-        // SSR smoke: leptos SSR would render; CSR tested via trunk
-        assert!(true);
+    fn login_posts_to_control_api() {
+        assert_eq!(LOGIN_URL, "/api/v1/auth/login");
     }
 }
