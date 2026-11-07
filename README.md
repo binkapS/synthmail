@@ -160,4 +160,4 @@ This audit baseline is tagged **`v0.1.0-audit.1`**. The workspace manifests decl
 
 ## License
 
-MIT (declared in `Cargo.toml`; a `LICENSE` file still needs to be added).
+MIT © 2026 Binkap S. See [`LICENSE`](LICENSE).
