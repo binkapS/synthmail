@@ -16,5 +16,7 @@ RUN groupadd -g 5000 vmail || true \
 COPY dovecot.conf /etc/dovecot/dovecot.conf
 COPY sql.conf /etc/dovecot/dovecot-sql.conf.ext
 EXPOSE 143 993 110 995 4190
-ENTRYPOINT ["/bin/sh", "-c", "doveadm start; dovecot; tail -f /var/log/dovecot.log 2>/dev/null || sleep infinity"]
+# Entry point: expand ${POSTGRES_PASSWORD} in the SQL driver config,
+# enable TLS when Let's Encrypt certs exist, then start dovecot.
+ENTRYPOINT ["/bin/sh", "-c", "sed -i \"s|password=.*|password=${POSTGRES_PASSWORD:-synth_dev}|\" /etc/dovecot/dovecot-sql.conf.ext; if [ -f /etc/letsencrypt/live/mail.example.com/fullchain.pem ]; then sed -i 's/^ssl = no/ssl = yes/' /etc/dovecot/dovecot.conf; fi; dovecot; sleep infinity"]
 HEALTHCHECK CMD doveadm ping || exit 1
