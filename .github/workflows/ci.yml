@@ -67,7 +67,7 @@ jobs:
       - name: rspamd configtest
         run: |
           docker run --rm -v "$PWD/docker/rspamd/local.d:/etc/rspamd/local.d:ro" \
-            rspamd/rspamd:1.94.2 rspamadm configtest
+            rspamd/rspamd:3.6.0 rspamadm configtest
       - name: doveconf sanity
         run: |
           docker run --rm -v "$PWD/docker/dovecot/dovecot.conf:/etc/dovecot/dovecot.conf:ro" \

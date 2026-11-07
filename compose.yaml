@@ -88,7 +88,7 @@ services:
     # Config split into local.d/<module>.conf snippets (audit H-13);
     # local.d/redis.conf uses ${REDIS_PASSWORD} via UCL env expansion.
     # Pinned (audit M-16); bump deliberately with a config test.
-    image: rspamd/rspamd:1.94.2
+    image: rspamd/rspamd:3.6.0
     environment:
       - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
     volumes:

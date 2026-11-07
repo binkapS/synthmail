@@ -1,10 +1,14 @@
 # SynthMail — SynthiUI (Leptos SPA) build + static serve.
 # Audit H-11: previously the UI was never built or served.
+# NOTE: there is no official Trunk Docker image (trunkwasm/trunk:latest does
+# not resolve); build trunk from crates.io in the rust builder instead.
 
 # --- Stage 1: Trunk build (WASM) ---
-FROM trunkwasm/trunk:latest AS builder
+FROM rust:bookworm AS builder
+RUN rustup target add wasm32-unknown-unknown \
+    && cargo install trunk --locked
 WORKDIR /app
-COPY Cargo.toml Cargo.lock ./
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY crates crates
 WORKDIR /app/crates/synth-ui
 RUN trunk build --release
