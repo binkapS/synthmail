@@ -1,0 +1,20 @@
+[package]
+name = "synth-migrate"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "synth-migrate"
+path = "src/main.rs"
+
+[dependencies]
+synth-common = { path = "../synth-common" }
+tokio.workspace = true
+sqlx.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+uuid.workspace = true

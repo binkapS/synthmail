@@ -1,0 +1,20 @@
+[package]
+name = "synth-dkim"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+serde.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+rsa = "0.9"
+base64 = "0.22"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand = "0.8"
+pkcs1 = "0.7"
+spki = "0.7"
+pkcs8 = "0.10"

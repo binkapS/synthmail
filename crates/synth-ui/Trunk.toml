@@ -1,0 +1,7 @@
+[build]
+target = "index.html"
+dist = "dist"
+
+[[serve]]
+proxy-url = "http://localhost:8000"
+proxy-port = 8000

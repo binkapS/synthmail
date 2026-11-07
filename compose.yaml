@@ -1,0 +1,239 @@
+services:
+  edge:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/edge/nginx.conf:/etc/nginx/nginx.conf:ro
+      - certs:/etc/letsencrypt
+    depends_on: [synth-control, synth-webmail]
+    networks: [mailnet, edge]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+    restart: unless-stopped
+
+  postfix:
+    build:
+      context: ./docker/postfix
+      dockerfile: Dockerfile
+    ports:
+      - "25:25"
+      - "465:465"
+      - "587:587"
+    volumes:
+      - postfix-spool:/var/spool/postfix
+      - maildir:/var/vmail
+      - certs:/etc/letsencrypt
+      - ./docker/postfix/main.cf:/etc/postfix/main.cf:ro
+      - ./docker/postfix/master.cf:/etc/postfix/master.cf:ro
+    depends_on: [postgres, redis]
+    networks: [mailnet]
+    healthcheck:
+      test: ["CMD", "postfix", "status"]
+      interval: 30s
+      timeout: 5s
+    restart: unless-stopped
+
+  dovecot:
+    build:
+      context: ./docker/dovecot
+      dockerfile: Dockerfile
+    ports:
+      - "143:143"
+      - "993:993"
+      - "110:110"
+      - "995:995"
+      - "4190:4190"
+    volumes:
+      - maildir:/var/vmail
+      - certs:/etc/letsencrypt
+      - ./docker/dovecot/dovecot.conf:/etc/dovecot/dovecot.conf:ro
+      - ./docker/dovecot/sql.conf:/etc/dovecot/dovecot-sql.conf.ext:ro
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgres://synth:synth_dev@postgres:5432/synthmail}
+    depends_on: [postgres, redis]
+    networks: [mailnet]
+    healthcheck:
+      test: ["CMD", "doveadm", "ping"]
+      interval: 30s
+      timeout: 5s
+    restart: unless-stopped
+
+  rspamd:
+    image: rspamd/rspamd:stable
+    volumes:
+      - rspamd:/var/lib/rspamd
+      - ./docker/rspamd/rspamd.conf:/etc/rspamd/local.d/rspamd.conf:ro
+    depends_on: [clamav, redis]
+    networks: [mailnet]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:11334/ping"]
+      interval: 30s
+      timeout: 5s
+    restart: unless-stopped
+
+  clamav:
+    image: clamav/clamav:stable
+    volumes:
+      - clamav:/var/lib/clamav
+    networks: [mailnet]
+    healthcheck:
+      test: ["CMD", "clamdscan", "--ping"]
+      interval: 30s
+      timeout: 5s
+    restart: unless-stopped
+
+  freshclam:
+    image: clamav/clamav:stable
+    command: ["freshclam", "-d", "--foreground"]
+    volumes:
+      - clamav:/var/lib/clamav
+    networks: [mailnet]
+    restart: unless-stopped
+
+  opendkim:
+    image: opendkim/opendkim
+    volumes:
+      - dkim:/etc/opendkim/keys
+      - ./docker/opendkim/opendkim.conf:/etc/opendkim.conf:ro
+    networks: [mailnet]
+    healthcheck:
+      test: ["CMD", "opendkim", "-V"]
+      interval: 30s
+      timeout: 5s
+    restart: unless-stopped
+
+  opendmarc:
+    image: domainaware/opendmarc
+    volumes:
+      - ./docker/opendmarc/opendmarc.conf:/etc/opendmarc.conf:ro
+    networks: [mailnet]
+    healthcheck:
+      test: ["CMD", "opendmarc-check"]
+      interval: 30s
+      timeout: 5s
+    restart: unless-stopped
+
+  synth-control:
+    build:
+      context: .
+      dockerfile: docker/synth-control/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgres://synth:synth_dev@postgres:5432/synthmail}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      - SESSION_SECRET=${SESSION_SECRET:-dev-secret-change-me-32bytes-min-0000}
+      - MAIL_HOST=${MAIL_HOST:-mail.example.com}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [mailnet, edge]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 5s
+    restart: unless-stopped
+
+  synth-webmail:
+    build:
+      context: .
+      dockerfile: docker/synth-webmail/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgres://synth:synth_dev@postgres:5432/synthmail}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      - SESSION_SECRET=${SESSION_SECRET:-dev-secret-change-me-32bytes-min-0000}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      dovecot: { condition: service_healthy }
+    networks: [mailnet, edge]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/healthz"]
+      interval: 30s
+      timeout: 5s
+    restart: unless-stopped
+
+  synth-watchdog:
+    build:
+      context: .
+      dockerfile: docker/synth-watchdog/Dockerfile
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgres://synth:synth_dev@postgres:5432/synthmail}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+    depends_on: [postgres, redis]
+    networks: [mailnet]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8081/healthz"]
+      interval: 60s
+      timeout: 5s
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-synth}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-synth_dev}
+      - POSTGRES_DB=${POSTGRES_DB:-synthmail}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    networks: [mailnet]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U synth"]
+      interval: 10s
+      timeout: 5s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis:/data
+    networks: [mailnet]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+    restart: unless-stopped
+
+  fail2ban:
+    image: fail2ban/fail2ban
+    volumes:
+      - ./docker/fail2ban/jail.local:/etc/fail2ban/jail.local:ro
+      - ./docker/fail2ban/filter.d:/etc/fail2ban/filter.d:ro
+    networks: [mailnet]
+    healthcheck:
+      test: ["CMD", "fail2ban-client", "status"]
+      interval: 30s
+      timeout: 5s
+    restart: unless-stopped
+
+  backup:
+    image: rclone/rclone
+    profiles: ["backup"]
+    volumes:
+      - backups:/backups
+    networks: [mailnet]
+    entrypoint: ["sh", "-c", "pg_dump -Fc -h postgres -U synth synthmail > /backups/db-$$(date +%F).dump && tar -czf /backups/maildir-$$(date +%F).tar.gz /var/vmail && rclone sync /backups $${RCLONE_REMOTE:-''} 2>/dev/null || echo 'no remote configured'"]
+
+volumes:
+  maildir:
+  postfix-spool:
+  postgres:
+  redis:
+  rspamd:
+  clamav:
+  dkim:
+  certs:
+  backups:
+
+networks:
+  mailnet:
+    driver: bridge
+  edge:
+    driver: bridge

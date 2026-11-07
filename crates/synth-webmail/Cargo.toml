@@ -1,0 +1,32 @@
+[package]
+name = "synth-webmail"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "synth-webmail"
+path = "src/main.rs"
+
+[dependencies]
+synth-common = { path = "../synth-common" }
+tokio.workspace = true
+axum.workspace = true
+tower.workspace = true
+tower-http = { version = "0.6", features = ["fs", "cors"] }
+sqlx.workspace = true
+redis.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+argon2.workspace = true
+jsonwebtoken.workspace = true
+async-imap.workspace = true
+lettre.workspace = true
+clap.workspace = true
+prometheus-client.workspace = true

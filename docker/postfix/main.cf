@@ -1,0 +1,35 @@
+# SynthMail main.cf — rendered from synth-control templates in Phase 1; checked in as baseline
+myhostname = mail.example.com
+mydomain = example.com
+myorigin = $mydomain
+relayhost = 
+mynetworks = 127.0.0.0/8 [::ffff:127.0.0.0]/104 [::1]/128 172.16.0.0/12
+inet_interfaces = all
+inet_protocols = ipv4
+mydestination = $myhostname, localhost.$mydomain, localhost, $mydomain
+virtual_mailbox_domains = pgsql:/etc/postfix/pgsql/virtual_domains.cf
+virtual_mailbox_maps = pgsql:/etc/postfix/pgsql/virtual_mailboxes.cf
+virtual_alias_maps = pgsql:/etc/postfix/pgsql/virtual_aliases.cf
+virtual_alias_domains =
+smtpd_sasl_auth_enable = yes
+smtpd_sasl_type = dovecot
+smtpd_sasl_path = private/auth
+smtpd_tls_security_level = may
+smtpd_tls_auth_only = no
+smtp_tls_security_level = may
+smtp_tls_note_starttls_offer = yes
+smtpd_tls_cert_file = /etc/letsencrypt/live/mail.example.com/fullchain.pem
+smtpd_tls_key_file = /etc/letsencrypt/live/mail.example.com/privkey.pem
+smtpd_use_tls = yes
+smtpd_recipient_restrictions = permit_mynetworks, permit_sasl_authenticated, reject_unauth_destination
+smtpd_helo_required = yes
+smtpd_sender_restrictions = permit_sasl_authenticated, permit_mynetworks
+# LMTP to Dovecot
+virtual_transport = lmtp:inet:dovecot:24
+# DKIM milter (opendkim :8892)
+smtpd_milters = inet:opendkim:8892, inet:opendmarc:8893
+non_smtpd_milters = $smtpd_milters
+milter_default_action = accept
+# SRS placeholder; enable in Phase 2 via synth-filter
+# queue_directory = /var/spool/postfix
+# home_mailbox = Maildir/

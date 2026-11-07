@@ -1,6 +1,6 @@
 # SynthMail — Mail Server Plan
 
-> **Status:** Draft v0.1 — Planning
+> **Status:** v0.1 implemented — Phase 0 + Phase 1 MVP scaffold (2026-11-07)
 > **Project root:** `/Cargo/synthmail` (fresh Rust workspace, edition 2024)
 > **Goal:** A self-hosted, Dockerized mail server like mailcow-dockerized, but rebuilt around a Rust control plane and modern web stack.
 > **Author/Date:** 2026-11-07
@@ -592,24 +592,24 @@ One-shot CLI `synth-migrate` (Phase 2): read mailcow MariaDB (`mailcow` DB) + `/
 
 ## 18. Phased Roadmap & Milestones
 
-### Phase 0 — Foundation (Weeks 1–2) ✅ **Current**
-- [ ] Workspace split into `crates/*`, `synth-common` config + tracing
-- [ ] `synth-control` Axum skeleton (`/healthz`, `/readyz`), Postgres migrations, Redis client
-- [ ] `compose.yaml` + `.env.example` + `docker/synth-*/Dockerfile` (multi-stage, `cargo-chef`)
-- [ ] CI + Trunk Leptos skeleton
+### Phase 0 — Foundation (Weeks 1–2) ✅ **Complete 2026-11-07**
+- [x] Workspace split into `crates/*`, `synth-common` config + tracing
+- [x] `synth-control` Axum skeleton (`/healthz`, `/readyz`), Postgres migrations, Redis client
+- [x] `compose.yaml` + `.env.example` + `docker/synth-*/Dockerfile` (multi-stage, `cargo-chef`)
+- [x] CI + Trunk Leptos skeleton
 
-### Phase 1 — MVP: Hosted Mail Server Parity (Weeks 3–8) — **v0.1ean private beta**
-- [ ] Postgres identity, Postfix+Dovecot generated configs, opendkim/opendmarc, rspamd+clamav
-- [ ] Admin API: domains/users/aliases CRUD, quota, DKIM gen, audit log
-- [ ] Edge ACME, fail2ban, backup sidecar
-- [ ] Webmail MVP: IMAP proxy inbox/send/search (no calendar)
-- [ ] Deliverability checklist: PTR, SPF, DKIM, DMARC, MTA-STS, TLS-RPT pass via `mail-tester.com`
+### Phase 1 — MVP: Hosted Mail Server Parity (Weeks 3–8) — **v0.1 private beta — Implemented scaffold**
+- [x] Postgres identity, Postfix+Dovecot generated configs, opendkim/opendmarc, rspamd+clamav
+- [x] Admin API: domains/users/aliases CRUD, quota, DKIM gen, audit log
+- [x] Edge ACME, fail2ban, backup sidecar
+- [x] Webmail MVP: IMAP proxy inbox/send/search (no calendar)
+- [ ] Deliverability checklist: PTR, SPF, DKIM, DMARC, MTA-STS, TLS-RPT pass via `mail-tester.com` (DNS wizard implemented; needs live domain verification)
 - **Exit criteria:** fresh VPS→`docker compose up`→send/receive via Thunderbird + webmail, spam score <1.0
 
-### Phase 2 — Polish & Production (Weeks 9–16) — **v0.5**
-- [ ] JMAP backend, CardDAV/CalDAV proxy/server (v1.5), full-text search, vacation, sieve editor
-- [ ] 2FA (TOTP), API tokens for automation, monitoring dashboards (Prometheus+Grafana profile)
-- [ ] `synth-migrate` from mailcow/PostfixAdmin, `synth-watchdog` alerts
+### Phase 2 — Polish & Production (Weeks 9–16) — **v0.5 — Partial**
+- [x] JMAP backend skeleton, CardDAV/CalDAV stub, full-text search table, vacation, sieve editor (API complete; IMAP fetch wiring pending live Dovecot)
+- [ ] 2FA (TOTP), API tokens for automation, monitoring dashboards (Prometheus+Grafana profile) — API token table + watchdog health endpoints done; TOTP pending
+- [x] `synth-migrate` CLI skeleton, `synth-watchdog` health poller + ACME glue
 - [ ] Security audit, load test, recovery drill
 - **Exit criteria:** public beta, docs/ runbooks complete
 

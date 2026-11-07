@@ -1,0 +1,23 @@
+[package]
+name = "synth-common"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+axum.workspace = true
+tokio.workspace = true
+prometheus-client.workspace = true
+config.workspace = true
+argon2.workspace = true
+jsonwebtoken.workspace = true
+sqlx.workspace = true
+rand = "0.8"

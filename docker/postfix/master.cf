@@ -1,0 +1,26 @@
+# SynthMail master.cf baseline
+smtp      inet  n       -       -       -       -       smtpd
+submission inet  n       -       -       -       -       smtpd
+  -o syslog_name=postfix/submission
+  -o smtpd_tls_security_level=encrypt
+smtps     inet  n       -       -       -       -       smtpd
+  -o syslog_name=postfix/smtps
+  -o smtpd_tls_wrappermode=yes
+  -o smtpd_tls_security_level=encrypt
+pickup    fifo  n       -       60      1       pickup
+cleanup   unix  n       -       -       -       cleanup
+qmgr      fifo  n       -       n       300     qmgr
+relay     unix  -       -       n       -       -       smtp
+error     unix  -       -       n       -       -       smtp
+retry     unix  -       -       n       -       -       smtp
+bounce    unix  -       -       n       -       0       bounce
+defer     unix  -       -       n       -       0       smtp
+trace     unix  -       -       n       -       0       smtp
+verify    unix  -       -       -       1       verify
+flush     unix  n       -       1000    0       flush
+proxymap unix  -       -       n       -       -       proxymap
+smtp      unix  -       -       -       -       smtp
+smtps     unix  -       -       -       -       smtp
+relay     unix  -       -       -       -       smtp
+uucp      unix  -       n       -       -       -       uucp
+lmtp      inet  n       -       -       -       -       lmtpd

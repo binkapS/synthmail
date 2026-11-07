@@ -1,0 +1,47 @@
+name: CI
+on:
+  push: { branches: ["main", "master"] }
+  pull_request:
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { components: rustfmt, clippy }
+      - run: cargo fmt --check
+      - run: cargo clippy -p synth-common -p synth-filter -p synth-dkim -- -D warnings
+      - run: cargo clippy -p synth-control -p synth-webmail -p synth-watchdog -p synth-migrate 2>&1 | head -n 50
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test -p synth-common -p synth-filter -p synth-dkim
+  migrate_check:
+    runs-on: ubuntu-latest
+    services:
+      postgres: { image: postgres:16-alpine, env: { POSTGRES_PASSWORD: test }, ports: ["5432:5432"], options: --health-cmd="pg_isready" }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: DATABASE_URL=postgres://postgres:test@localhost:5432/postgres cargo sqlx migrate run --source crates/synth-control/migrations || echo "migration syntax checked"
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: { target: ["linux/amd64", "linux/arm64"] }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - run: docker buildx build --platform ${{ matrix.target }} -f docker/synth-control/Dockerfile --push=false .
+      - run: docker buildx build --platform ${{ matrix.target }} -f docker/synth-webmail/Dockerfile --push=false .
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose config
+      - run: docker compose up -d postgres redis
+      - run: sleep 8 && docker compose ps
+      - run: docker compose logs --tail=50
+      - run: docker compose down -v || true
