@@ -1,4 +1,10 @@
 FROM debian:bookworm-slim
+ENV DEBIAN_FRONTEND=noninteractive
+# Prevent maintainer scripts from trying to start services during the image
+# build (no init system exists in the build container).
+# policy-rc.d exiting 101 is the documented "do not start" code.
+RUN printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d \
+    && chmod +x /usr/sbin/policy-rc.d
 RUN apt-get update && apt-get install -y --no-install-recommends \
     dovecot-core dovecot-imapd dovecot-pop3d dovecot-lmtpd dovecot-sieve dovecot-managesieved dovecot-pgsql \
     ca-certificates \

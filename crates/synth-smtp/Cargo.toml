@@ -1,0 +1,24 @@
+[package]
+name = "synth-smtp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "synth-smtp"
+path = "src/main.rs"
+
+[dependencies]
+synth-common = { path = "../synth-common" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+lettre.workspace = true
+redis.workspace = true
+sqlx.workspace = true
+clap.workspace = true

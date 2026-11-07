@@ -1,0 +1,19 @@
+[package]
+name = "synth-bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "synth-bench"
+path = "src/main.rs"
+
+[dependencies]
+synth-common = { path = "../synth-common" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+chrono.workspace = true
+uuid.workspace = true

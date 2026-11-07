@@ -55,6 +55,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/admin/bans", get(list_bans))
         .route("/api/v1/config/export", get(config_export))
         .route("/api/v1/config/import", post(config_import))
+        .route("/api/v1/dmarc/reports", get(list_dmarc_reports).post(create_dmarc_report))
         .route("/api/v1/auth/totp/enroll", post(totp_enroll))
         .route("/api/v1/auth/totp/verify", post(totp_verify))
         .route("/api/v1/auth/totp/disable", post(totp_disable))
@@ -1013,6 +1014,48 @@ async fn config_import(
     .await
     .ok();
     Ok(Json(serde_json::json!({"imported": imported})))
+}
+
+// ---------- Phase 4: DMARC aggregate report viewer ----------
+
+#[derive(Debug, Deserialize)]
+struct DmarcCreate {
+    domain: String,
+    report_id: String,
+    xml: String,
+    #[serde(default = "default_report_type")]
+    report_type: String,
+}
+fn default_report_type() -> String { "aggregate".to_string() }
+
+async fn create_dmarc_report(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<DmarcCreate>,
+) -> Result<Json<serde_json::Value>, ErrorResponse> {
+    let _actor = require_admin(&s, &headers).await?;
+    let id = Uuid::new_v4();
+    sqlx::query("INSERT INTO dmarc_reports (id, domain, report_id, xml, report_type) VALUES ($1,$2,$3,$4,$5)")
+        .bind(id).bind(&req.domain.to_lowercase()).bind(&req.report_id).bind(&req.xml).bind(&req.report_type)
+        .execute(&s.pool).await.map_err(|e| ErrorResponse(AppError::Database(e)))?;
+    Ok(Json(serde_json::json!({"id": id, "domain": req.domain, "report_id": req.report_id})))
+}
+
+async fn list_dmarc_reports(
+    State(s): State<AppState>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<Vec<serde_json::Value>>, ErrorResponse> {
+    let domain = params.get("domain").cloned();
+    let rows: Vec<(Uuid, String, String, String, DateTime<Utc>)> = if let Some(d) = domain {
+        sqlx::query_as("SELECT id, domain::text, report_id, report_type, created_at FROM dmarc_reports WHERE domain=$1 ORDER BY created_at DESC LIMIT 100")
+            .bind(d).fetch_all(&s.pool).await.map_err(|e| ErrorResponse(AppError::Database(e)))?
+    } else {
+        sqlx::query_as("SELECT id, domain::text, report_id, report_type, created_at FROM dmarc_reports ORDER BY created_at DESC LIMIT 100")
+            .fetch_all(&s.pool).await.map_err(|e| ErrorResponse(AppError::Database(e)))?
+    };
+    Ok(Json(rows.into_iter().map(|(id, domain, report_id, report_type, at)| {
+        serde_json::json!({"id": id, "domain": domain, "report_id": report_id, "report_type": report_type, "created_at": at})
+    }).collect()))
 }
 
 // ---------- Well-known ----------

@@ -3636,6 +3636,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "synth-bench"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "serde",
+ "serde_json",
+ "synth-common",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "synth-common"
 version = "0.1.0"
 dependencies = [
@@ -3725,6 +3739,25 @@ dependencies = [
  "synth-common",
  "tokio",
  "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "synth-smtp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "lettre",
+ "redis",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "synth-common",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
  "uuid",
 ]
 

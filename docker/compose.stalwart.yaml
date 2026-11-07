@@ -1,0 +1,24 @@
+# Phase 3: Stalwart drop-in evaluation (profile `stalwart`)
+# Bring up with: docker compose -f compose.yaml -f docker/compose.stalwart.yaml --profile stalwart up -d
+services:
+  stalwart:
+    image: stalwartlabs/stalwart:v1
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+      - "25:25"
+      - "465:465"
+      - "993:993"
+      - "995:995"
+      - "4190:4190"
+      - "443:443"
+    volumes:
+      - stalwart_etc:/etc/stalwart
+      - stalwart_data:/var/lib/stalwart
+    networks: [mailnet]
+    profiles: ["stalwart"]
+
+volumes:
+  stalwart_etc:
+  stalwart_data:
