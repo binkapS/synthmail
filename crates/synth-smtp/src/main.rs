@@ -1,9 +1,14 @@
 //! Phase 3 spike: minimal ESMTP server (EHLO/MAIL/RCPT/DATA/QUIT).
 //! Queues to Redis, optionally forwards to Postfix via lettre (hybrid fallback).
 //! Not an inbound MTA replacement — submission shim only.
+//!
+//! SECURITY: This shim is UNAUTHENTICATED (no AUTH, no STARTTLS). It binds
+//! 0.0.0.0 by default and MUST only be exposed on trusted networks
+//! (loopback or the private compose network). Do not expose it to the
+//! public internet — it accepts mail for any domain and can be abused
+//! for spam injection and queue flooding.
 
 use clap::Parser;
-use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 
@@ -34,6 +39,41 @@ pub struct QueuedMessage {
     pub queued_at: chrono::DateTime<chrono::Utc>,
 }
 
+const MAX_MESSAGE_SIZE_BYTES: usize = 10 * 1024 * 1024; // 10 MiB
+const MAX_RECIPIENTS: usize = 50;
+const MAX_LINE_LENGTH: usize = 1000; // RFC 5321: 1000 octets incl. CRLF
+const REDIS_KEY_TTL_SECS: i64 = 86400;
+const MAX_PENDING: isize = 1000;
+
+/// Strip only the trailing line ending (`\r\n` or `\n`), preserving all
+/// other bytes including leading/trailing whitespace.
+fn strip_crlf(s: &str) -> &str {
+    let s = s.strip_suffix('\n').unwrap_or(s);
+    s.strip_suffix('\r').unwrap_or(s)
+}
+
+/// Extract the bare envelope address from a `MAIL FROM:` / `RCPT TO:` command.
+/// Recognises `<addr>` plus optional ESMTP parameters (`SIZE=...`, etc.).
+/// Returns the address without angle brackets (empty string for `<>`).
+fn extract_envelope_address(command: &str) -> String {
+    if let Some(start) = command.find('<')
+        && let Some(end_off) = command[start..].find('>')
+    {
+        return command[start + 1..start + end_off].to_string();
+    }
+    if let Some(colon) = command.find(':') {
+        let rest = command[colon + 1..].trim();
+        return rest
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .trim_start_matches('<')
+            .trim_end_matches('>')
+            .to_string();
+    }
+    command.trim().to_string()
+}
+
 pub fn handle_line(
     client_host: &str,
     line: &str,
@@ -42,29 +82,52 @@ pub fn handle_line(
     in_data: &mut bool,
     data: &mut String,
 ) -> Option<String> {
-    let t = line.trim();
-    if *in_data {
-        if t == "." {
+    let content = strip_crlf(line);
+    if content.len() > MAX_LINE_LENGTH {
+        if *in_data {
             *in_data = false;
+            data.clear();
+        }
+        return Some("552 Line too long".into());
+    }
+    let t = content.trim();
+    if *in_data {
+        // Exact CRLF-dot terminator only; surrounding whitespace is DATA.
+        if content == "." {
+            *in_data = false;
+            // Build the queued message with the accumulated body verbatim.
+            // NOTE: do NOT `take` `data` here — `handle_client` reads `data`
+            // to build the stored message. Taking it here was the lost-body
+            // bug (H-14): the queued message was discarded empty.
             let from = mail_from.clone().unwrap_or_default();
             let queued = QueuedMessage {
                 id: uuid::Uuid::new_v4().to_string(),
                 mail_from: from,
                 rcpt_to: rcpts.clone(),
-                data: std::mem::take(data),
+                data: data.clone(),
                 queued_at: chrono::Utc::now(),
             };
             return Some(format!("250 QUEUED id={}", queued.id));
         }
-        // Dot-stuffing: leading ".." → "."
-        let unstuffed = if t.starts_with("..") { &t[1..] } else { t };
+        // Dot-stuffing: leading ".." -> "."
+        let unstuffed = if content.starts_with("..") {
+            &content[1..]
+        } else {
+            content
+        };
+        if data.len() + unstuffed.len() + 2 > MAX_MESSAGE_SIZE_BYTES {
+            *in_data = false;
+            data.clear();
+            return Some("552 Message too large".into());
+        }
         data.push_str(unstuffed);
         data.push_str("\r\n");
         return None;
     }
     let upper = t.to_ascii_uppercase();
     if upper == "EHLO" || upper.starts_with("EHLO ") {
-        Some("250-SynthMail ESMTP\r\n250-HELLO\r\n250-AUTH PLAIN LOGIN\r\n250 STARTTLS".into())
+        // AUTH and STARTTLS are NOT implemented — never advertise them.
+        Some("250-SynthMail ESMTP\r\n250 HELLO".into())
     } else if upper == "HELO" || upper.starts_with("HELO ") {
         Some(format!("250 {}", client_host))
     } else if upper == "QUIT" {
@@ -74,13 +137,16 @@ pub fn handle_line(
         rcpts.clear();
         Some("250 OK".into())
     } else if upper.starts_with("MAIL FROM:") {
-        *mail_from = Some(t.to_string());
+        *mail_from = Some(extract_envelope_address(t));
         Some("250 OK".into())
     } else if upper.starts_with("RCPT TO:") {
         if mail_from.is_none() {
             return Some("503 Bad sequence".into());
         }
-        rcpts.push(t.to_string());
+        if rcpts.len() >= MAX_RECIPIENTS {
+            return Some("554 Too many recipients".into());
+        }
+        rcpts.push(extract_envelope_address(t));
         Some("250 OK".into())
     } else if upper == "DATA" {
         if mail_from.is_none() {
@@ -143,16 +209,28 @@ async fn handle_client(
                     queued_at: chrono::Utc::now(),
                 };
                 if let Ok(mut c) = redis.clone().get_multiplexed_async_connection().await {
+                    let key = format!("synth:queue:{}", queued.id);
                     let _ = redis::AsyncCommands::set::<_, _, ()>(
                         &mut c,
-                        format!("synth:queue:{}", queued.id),
+                        &key,
                         serde_json::to_string(&queued).unwrap_or_default(),
                     )
                     .await;
+                    let _ = redis::AsyncCommands::expire::<_, ()>(&mut c, &key, REDIS_KEY_TTL_SECS)
+                        .await;
                     let _ = redis::AsyncCommands::lpush::<_, _, ()>(
                         &mut c,
                         "synth:queue:pending",
                         queued.id.clone(),
+                    )
+                    .await;
+                    // Cap the pending list so unauthenticated clients cannot
+                    // grow Redis without bound.
+                    let _ = redis::AsyncCommands::ltrim::<_, ()>(
+                        &mut c,
+                        "synth:queue:pending",
+                        0,
+                        MAX_PENDING,
                     )
                     .await;
                 }
@@ -209,6 +287,9 @@ async fn main() -> anyhow::Result<()> {
     let redis =
         redis::Client::open(args.redis_url.clone()).map_err(|e| anyhow::anyhow!("redis: {e}"))?;
     let listener = TcpListener::bind(format!("{}:{}", args.host, args.port)).await?;
+    tracing::warn!(
+        "synth-smtp UNAUTHENTICATED shim — no AUTH/STARTTLS; trusted networks only, do not expose to public internet"
+    );
     tracing::info!(addr = %listener.local_addr().unwrap(), "synth-smtp listening (spike)");
     let forward = args.forward_to_postfix;
     let postfix_host = args.postfix_host.clone();
@@ -227,7 +308,7 @@ async fn main() -> anyhow::Result<()> {
 mod tests {
     use super::*;
     #[test]
-    fn ehlo_advertises_auth() {
+    fn ehlo_no_auth_or_starttls() {
         let mut mf = None;
         let mut rc = vec![];
         let mut id = false;
@@ -242,7 +323,11 @@ mod tests {
         )
         .unwrap();
         assert!(r.contains("250"));
-        assert!(r.contains("AUTH"));
+        assert!(!r.contains("AUTH"), "EHLO must not advertise AUTH: {r}");
+        assert!(
+            !r.contains("STARTTLS"),
+            "EHLO must not advertise STARTTLS: {r}"
+        );
     }
     #[test]
     fn rcpt_before_mail_fails() {
@@ -285,5 +370,101 @@ mod tests {
         assert!(handle_line("h", "Subject: hi", &mut mf, &mut rc, &mut id, &mut d).is_none());
         let r = handle_line("h", ".", &mut mf, &mut rc, &mut id, &mut d).unwrap();
         assert!(r.starts_with("250 QUEUED"));
+        // Bare envelope addresses, not whole command strings (H-14).
+        assert_eq!(mf.as_deref(), Some("a@b"));
+        assert_eq!(rc, vec!["c@d".to_string()]);
+        // Queued body equals submitted body (C-07 lost-body bug).
+        assert_eq!(d, "Subject: hi\r\n");
+    }
+    #[test]
+    fn data_body_preserved_verbatim() {
+        let mut mf = None;
+        let mut rc = vec![];
+        let mut id = false;
+        let mut d = String::new();
+        handle_line("h", "MAIL FROM: <a@b>", &mut mf, &mut rc, &mut id, &mut d);
+        handle_line("h", "RCPT TO: <c@d>", &mut mf, &mut rc, &mut id, &mut d);
+        handle_line("h", "DATA", &mut mf, &mut rc, &mut id, &mut d);
+        // Leading/trailing whitespace must be preserved verbatim.
+        assert!(handle_line("h", "  indented  \r\n", &mut mf, &mut rc, &mut id, &mut d).is_none());
+        // ".." is dot-stuffed "." (not terminator); "...x" -> "..x".
+        assert!(handle_line("h", "..", &mut mf, &mut rc, &mut id, &mut d).is_none());
+        assert!(handle_line("h", "...x", &mut mf, &mut rc, &mut id, &mut d).is_none());
+        let r = handle_line("h", ".", &mut mf, &mut rc, &mut id, &mut d).unwrap();
+        assert!(r.starts_with("250 QUEUED"));
+        assert_eq!(d, "  indented  \r\n.\r\n..x\r\n");
+    }
+    #[test]
+    fn limits_reject() {
+        // Line-length limit.
+        let mut mf = None;
+        let mut rc = vec![];
+        let mut id = false;
+        let mut d = String::new();
+        let long_line = "x".repeat(MAX_LINE_LENGTH + 1);
+        let r = handle_line("h", &long_line, &mut mf, &mut rc, &mut id, &mut d).unwrap();
+        assert!(
+            r.starts_with("552") || r.starts_with("554"),
+            "long line should be rejected: {r}"
+        );
+        // Recipient limit.
+        handle_line("h", "MAIL FROM: <a@b>", &mut mf, &mut rc, &mut id, &mut d);
+        for i in 0..MAX_RECIPIENTS {
+            let r = handle_line(
+                "h",
+                &format!("RCPT TO: <r{i}@example.com>"),
+                &mut mf,
+                &mut rc,
+                &mut id,
+                &mut d,
+            )
+            .unwrap();
+            assert!(r.starts_with("250"), "rcpt {i} should succeed: {r}");
+        }
+        assert_eq!(rc.len(), MAX_RECIPIENTS);
+        let r = handle_line(
+            "h",
+            "RCPT TO: <overflow@example.com>",
+            &mut mf,
+            &mut rc,
+            &mut id,
+            &mut d,
+        )
+        .unwrap();
+        assert!(
+            r.starts_with("552") || r.starts_with("554"),
+            "over-limit rcpt should be rejected: {r}"
+        );
+        // Message-size limit: fill just over 10 MiB (10k lines of 1000 bytes).
+        let mut mf2: Option<String> = None;
+        let mut rc2: Vec<String> = vec![];
+        let mut id2 = false;
+        let mut d2 = String::new();
+        handle_line(
+            "h",
+            "MAIL FROM: <a@b>",
+            &mut mf2,
+            &mut rc2,
+            &mut id2,
+            &mut d2,
+        );
+        handle_line("h", "RCPT TO: <c@d>", &mut mf2, &mut rc2, &mut id2, &mut d2);
+        handle_line("h", "DATA", &mut mf2, &mut rc2, &mut id2, &mut d2);
+        let chunk = "x".repeat(MAX_LINE_LENGTH);
+        let mut rejected = None;
+        // 10 MiB / 1000 ≈ 10486 lines; add slack.
+        for _ in 0..(MAX_MESSAGE_SIZE_BYTES / MAX_LINE_LENGTH + 10) {
+            let r = handle_line("h", &chunk, &mut mf2, &mut rc2, &mut id2, &mut d2);
+            if let Some(r) = r {
+                rejected = Some(r);
+                break;
+            }
+        }
+        let r = rejected.expect("oversize message should be rejected");
+        assert!(
+            r.starts_with("552") || r.starts_with("554"),
+            "oversize message should be rejected: {r}"
+        );
+        assert!(!id2, "DATA mode must abort on size overflow");
     }
 }

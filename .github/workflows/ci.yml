@@ -10,14 +10,24 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with: { components: rustfmt, clippy }
       - run: cargo fmt --check
-      - run: cargo clippy -p synth-common -p synth-filter -p synth-dkim -- -D warnings
-      - run: cargo clippy -p synth-control -p synth-webmail -p synth-watchdog -p synth-migrate 2>&1 | head -n 50
+      # Workspace-wide clippy with warnings denied (audit M-18). pipefail so
+      # the step fails when cargo fails even if output is truncated.
+      - name: clippy (workspace)
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo clippy --workspace --all-targets -- -D warnings 2>&1 | head -n 200
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --workspace --offline 2>&1 | tail -n 30
+        with: { components: clippy }
+      - name: test (workspace)
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test --workspace 2>&1 | tail -n 100
   migrate_check:
     runs-on: ubuntu-latest
     services:
@@ -25,7 +35,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: DATABASE_URL=postgres://postgres:test@localhost:5432/postgres cargo sqlx migrate run --source crates/synth-control/migrations || echo "migration syntax checked"
+      - name: install sqlx-cli
+        run: cargo install sqlx-cli --no-default-features --features postgres --locked
+      # Actually run migrations against the service Postgres (audit M-18);
+      # failures fail the job.
+      - name: run migrations
+        env: { DATABASE_URL: "postgres://postgres:test@localhost:5432/postgres" }
+        run: sqlx migrate run --source crates/synth-control/migrations
   build:
     runs-on: ubuntu-latest
     strategy:
@@ -41,7 +57,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker compose config
-      - run: docker compose up -d postgres redis
-      - run: sleep 8 && docker compose ps
+      - name: start postgres and redis
+        run: docker compose up -d postgres redis
+      - name: wait and inspect
+        run: |
+          sleep 8
+          docker compose ps
+      - name: healthz smoke (best effort)
+        run: |
+          set -o pipefail
+          # App health endpoints only answer when the full stack is up;
+          # curl failures here are reported but do not fail the job until
+          # the stack is started in CI (audit M-18, best effort).
+          for url in http://127.0.0.1:8000/healthz http://127.0.0.1:3000/healthz; do
+            if curl -fsS --max-time 5 "$url" 2>/dev/null; then
+              echo "OK: $url"
+            else
+              echo "WARN: $url unreachable (full stack not started in smoke; postgres/redis only)"
+            fi
+          done
       - run: docker compose logs --tail=50
       - run: docker compose down -v || true

@@ -3,7 +3,6 @@
 //! Connects to Dovecot IMAP (internal TLS) and translates to JSON for webmail API.
 
 use anyhow::{Context, Result};
-use async_imap::Client as ImapClient;
 use std::net::SocketAddr;
 
 pub struct MailMessage {
@@ -63,6 +62,7 @@ pub async fn fetch_messages(
     Ok(vec![])
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn send_via_smtp(
     _host: &str,
     _port: u16,

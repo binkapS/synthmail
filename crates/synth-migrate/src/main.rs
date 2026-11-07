@@ -60,19 +60,85 @@ struct CsvRow {
     password: Option<String>,
 }
 
+/// Split one CSV record, supporting RFC4180-ish quoted fields: a field
+/// enclosed in double quotes may contain commas, and `""` inside a quoted
+/// field is an escaped quote. Unquoted fields are trimmed; quoted fields
+/// keep their interior verbatim.
+fn parse_csv_record(line: &str) -> Vec<String> {
+    let mut fields: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+    let mut field_quoted = false;
+    let mut chars = line.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if in_quotes {
+            if c == '"' {
+                if chars.peek() == Some(&'"') {
+                    chars.next();
+                    current.push('"');
+                } else {
+                    in_quotes = false;
+                }
+            } else {
+                current.push(c);
+            }
+        } else if c == '"' && current.is_empty() {
+            in_quotes = true;
+            field_quoted = true;
+        } else if c == ',' {
+            let value = if field_quoted {
+                std::mem::take(&mut current)
+            } else {
+                let trimmed = current.trim().to_string();
+                current.clear();
+                trimmed
+            };
+            fields.push(value);
+            field_quoted = false;
+        } else {
+            current.push(c);
+        }
+    }
+    fields.push(if field_quoted {
+        current
+    } else {
+        current.trim().to_string()
+    });
+    fields
+}
+
 fn parse_csv_line(line: &str) -> Option<CsvRow> {
-    let cols: Vec<&str> = line.split(',').map(str::trim).collect();
-    if cols.len() < 1 {
+    let cols = parse_csv_record(line);
+    if cols.is_empty() {
         return None;
     }
     let email_part = cols[0].trim().to_lowercase();
-    if !email_part.contains('@') {
+    if email_part.is_empty() || !email_part.contains('@') {
         return None;
     }
     Some(CsvRow {
         email: email_part,
-        password: cols.get(1).map(|s| s.to_string()),
+        password: cols.get(1).cloned(),
     })
+}
+
+/// Whether `hash` parses as an Argon2 PHC string
+/// (`$argon2{id,i,d}$v=<n>$m=<n>,t=<n>,p=<n>$<salt>$<hash>`).
+/// Checks structure only; never logs or returns hash material.
+fn is_argon2_hash(hash: &str) -> bool {
+    let parts: Vec<&str> = hash.split('$').collect();
+    // ["", "argon2id", "v=19", "m=...,t=...,p=...", "<salt>", "<hash>"]
+    parts.len() == 6
+        && parts[0].is_empty()
+        && (parts[1] == "argon2id" || parts[1] == "argon2i" || parts[1] == "argon2d")
+        && parts[2].starts_with("v=")
+        && parts[3].starts_with("m=")
+        && parts[3].contains("t=")
+        && parts[3].contains("p=")
+        && !parts[4].is_empty()
+        && !parts[5].is_empty()
+        && parts.iter().all(|p| !p.contains(char::is_whitespace))
 }
 
 async fn import_csv(
@@ -109,7 +175,7 @@ async fn import_csv(
 }
 
 async fn import_mailcow(
-    pool: &sqlx::postgres::PgPool,
+    _pool: &sqlx::postgres::PgPool,
     url: &str,
     regenerate_dkim: bool,
 ) -> anyhow::Result<()> {
@@ -265,8 +331,9 @@ async fn main() -> anyhow::Result<()> {
             let hashes: Vec<String> = sqlx::query_scalar("SELECT password_hash FROM users LIMIT 5")
                 .fetch_all(&pool)
                 .await?;
-            for h in hashes {
-                println!("hash prefix: {}", &h[..h.len().min(16)]);
+            for h in &hashes {
+                // L-05/M-24: never print hash material, only whether it parses as Argon2.
+                println!("sample hash parses as argon2: {}", is_argon2_hash(h));
             }
         }
         Commands::CountMaildir { maildir } => {
@@ -291,5 +358,37 @@ mod tests {
         assert!(parse_csv_line("email").is_none());
         let r = parse_csv_line("alice@example.com, secret123").unwrap();
         assert_eq!(r.email, "alice@example.com");
+    }
+    #[test]
+    fn csv_parse_quoted_password_with_comma() {
+        let r = parse_csv_line("bob@example.com,\"p@ss,word\"").unwrap();
+        assert_eq!(r.email, "bob@example.com");
+        assert_eq!(r.password.as_deref(), Some("p@ss,word"));
+        // Escaped quotes inside a quoted field: "" -> "
+        let r = parse_csv_line("bob@example.com,\"a\"\"b\"").unwrap();
+        assert_eq!(r.password.as_deref(), Some("a\"b"));
+    }
+    #[test]
+    fn csv_parse_quoted_email_and_escaped_quotes() {
+        let r = parse_csv_line(r#""carol@example.com","a,b""#).unwrap();
+        assert_eq!(r.email, "carol@example.com");
+        assert_eq!(r.password.as_deref(), Some("a,b"));
+    }
+    #[test]
+    fn csv_parse_empty_and_invalid() {
+        assert!(parse_csv_line("").is_none());
+        assert!(parse_csv_line("   ").is_none());
+        assert!(parse_csv_line(",secret").is_none());
+        assert!(parse_csv_record("").iter().all(|f| f.is_empty()));
+    }
+    #[test]
+    fn argon2_hash_detection() {
+        assert!(is_argon2_hash(
+            "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHQ$/hash+/with=padding"
+        ));
+        assert!(is_argon2_hash("$argon2i$v=19$m=4096,t=3,p=1$salt$hash"));
+        assert!(!is_argon2_hash("plaintext"));
+        assert!(!is_argon2_hash("$argon2id$v=19$m=19456,t=2,p=1$$"));
+        assert!(!is_argon2_hash(""));
     }
 }

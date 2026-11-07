@@ -1,3 +1,6 @@
+// Webmail IMAP/JMAP proxy handlers are honest 501 stubs until the Dovecot
+// integration lands (H-10); supporting helpers below are intentionally kept.
+#![allow(dead_code)]
 mod app;
 mod carddav;
 mod fts_indexer;
@@ -46,6 +49,10 @@ async fn main() -> anyhow::Result<()> {
         tokio::net::TcpListener::bind(format!("{}:{}", state.config.host, state.config.port))
             .await?;
     tracing::info!(addr = %listener.local_addr().unwrap(), "synth-webmail listening");
-    axum::serve(listener, routes::router(state)).await?;
+    axum::serve(listener, routes::router(state))
+        .with_graceful_shutdown(async {
+            let _ = tokio::signal::ctrl_c().await;
+        })
+        .await?;
     Ok(())
 }

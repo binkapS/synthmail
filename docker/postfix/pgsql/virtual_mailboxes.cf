@@ -1,0 +1,7 @@
+# Postfix virtual_mailbox_maps — active mailboxes and their Maildir path
+# (audit H-06). Path layout: /var/vmail/<domain>/<localpart>/
+hosts = postgres
+dbname = synthmail
+user = synth
+password = ${POSTGRES_PASSWORD}
+query = SELECT email, '/var/vmail/' || split_part(email::text, '@', 2) || '/' || split_part(email::text, '@', 1) || '/' FROM users WHERE active = true
