@@ -2,6 +2,6 @@
 target = "index.html"
 dist = "dist"
 
-[[serve]]
-proxy-url = "http://localhost:8000"
-proxy-port = 8000
+# NOTE: Trunk 0.22 changed the serve/proxy TOML format; the build does not
+# need it. For local dev, override on the CLI:
+#   trunk serve --proxy-backend "http://localhost:8000"

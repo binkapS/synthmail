@@ -2,7 +2,7 @@ FROM rust:bookworm AS builder
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY crates crates
-RUN cargo build --release --bin synth-watchdog
+RUN cargo build --release --locked --bin synth-watchdog
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates wget && rm -rf /var/lib/apt/lists/*
