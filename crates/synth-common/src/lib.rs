@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod config;
+pub mod dmarc;
 pub mod dns_check;
 pub mod error;
 pub mod hibp;

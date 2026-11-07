@@ -1,5 +1,6 @@
-// Webmail IMAP/JMAP proxy handlers are honest 501 stubs until the Dovecot
-// integration lands (H-10); supporting helpers below are intentionally kept.
+// Webmail mail access is Maildir-backed (see imap.rs); JMAP Email/set is
+// the only remaining honest stub (modeled, not implemented).
+// supporting helpers below are intentionally kept.
 #![allow(dead_code)]
 mod app;
 mod carddav;

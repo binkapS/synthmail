@@ -16,5 +16,5 @@ scrape_configs:
       - targets: ["synth-watchdog:8081"]
     metrics_path: /metrics
   # NOTE: the previous "postfix-queue" job scraped synth-watchdog a second
-  # time and never measured the Postfix queue. Removed (audit M-21);
-  # a real postfix-queue exporter can be added once one is shipped.
+  # time and never measured the Postfix queue. Removed (audit M-21); queue
+  # depth is a gauge (synth_control_postfix_queue) on the synth-control job.

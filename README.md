@@ -22,7 +22,7 @@ Self-hosted mail server with a Rust control plane. Postfix, Dovecot, and Rspamd 
 | Postfix / Dovecot integration | ✅ Partial | `postfix-pgsql` package + map files; Dovecot `ssl = yes` **fail-closed**; SASL only over TLS |
 | Encrypted secrets at rest | ✅ | `ENCRYPTION_KEY` (64 hex) → AES-256-GCM via `synth-common::secrets`; DKIM private keys + TOTP secrets encrypted |
 | DKIM (`synth-dkim`) | ✅ | RSA-2048/Ed25519 (real PKCS#8); keys encrypted in DB **and** synced to the shared OpenDKIM volume (`KeyTable`/`SigningTable`); `MinimumKeyBits 2048` |
-| Webmail backend (`synth-webmail`) | ⚠️ Authenticated, mail features honest 501s | `authenticate_user` enforced everywhere; FTS indexer runs every 60 s; IMAP fetch / SMTP send still `501 Not Implemented` |
+| Webmail backend (`synth-webmail`) | ✅ Authenticated mail access | `authenticate_user` enforced everywhere; FTS indexer runs every 60 s; folders/list/get/drafts/delete read the shared Maildir; send via Postfix on mailnet; JMAP Email/query+get |
 | Admin UI (`synth-ui`, Leptos) | ✅ Built + served | `docker/synth-ui/Dockerfile` (Trunk WASM build) → `synth-ui` service behind edge `/admin/`; login button posts to the real API |
 | SMTP shim (`synth-smtp`) | 🧪 Experimental | Loopback default, max 100 concurrent connections, size/recipient/line limits; still unauthenticated (no AUTH/STARTTLS) — trusted networks only |
 | Monitoring / watchdog | ✅ Partial | `/metrics`, health polling, deduped alerts; `queue_depth` gauge; ACME challenge endpoint validates tokens before FS access |
@@ -190,7 +190,7 @@ Closed with this hardening pass (see `AUDIT-RECHECK.md` §4 for the full checkli
 
 Still open (documented, not blocking the above):
 
-- Real IMAP fetch / SMTP send / JMAP email methods are honest `501 Not Implemented` until the Dovecot integration lands.
+- JMAP `Email/set` (create/update/destroy) is modeled but not implemented; Email/query+get are real.
 - `synth-smtp` has no AUTH/STARTTLS — trusted networks only (sync `docs/runbooks/security.md`).
 - ClamAV image has no numeric tag upstream; digest pinning is pending.
 - HTTPS edge activation still depends on the manual `--staging` removal for production certificates.

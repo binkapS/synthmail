@@ -43,4 +43,4 @@ fixed by Session A in the working tree already — not redone here.
 
 Not touching: `crates/**`, `docker/postfix/**`, `compose.yaml` sections owned by
 Session A (ports, env, secrets) — only the rspamd service block + TODO comment.
-C-06 (ACME) and C-07/H-14 (synth-smtp) remain open for a future pass.
+C-06 (ACME) and C-07/H-14 (synth-smtp) were closed in the follow-up pass below.

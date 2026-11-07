@@ -113,22 +113,91 @@ async fn jmap_dispatch(
     headers: HeaderMap,
     Json(req): Json<crate::jmap::JmapRequest>,
 ) -> Result<Json<crate::jmap::JmapResponse>, ErrorResponse> {
-    authenticate_user(&s, &headers).await?;
-    let responses = req
-        .method_calls
-        .iter()
-        .map(|c| {
-            let mut v = crate::jmap::handle_method(c);
-            if let Some(o) = v.as_object_mut() {
-                o.insert("tag".to_string(), serde_json::json!(c.tag));
-            }
-            v
-        })
-        .collect();
+    let user = authenticate_user(&s, &headers).await?;
+    let root = maildir_root();
+    let mut responses = Vec::new();
+    for c in &req.method_calls {
+        let mut v = match c.name.as_str() {
+            // Email/query + Email/get read the user's own Maildir (JMAP).
+            "Email/query" | "Email/get" => email_jmap(c, &root, &user.email).await,
+            _ => crate::jmap::handle_method(c),
+        };
+        if let Some(o) = v.as_object_mut() {
+            o.insert("tag".to_string(), serde_json::json!(c.tag));
+        }
+        responses.push(v);
+    }
     Ok(Json(crate::jmap::JmapResponse {
         session_state: "synthmail-state-1".into(),
         method_responses: responses,
     }))
+}
+
+async fn email_jmap(call: &crate::jmap::MethodCall, root: &str, email: &str) -> serde_json::Value {
+    let account = call
+        .args
+        .get("accountId")
+        .cloned()
+        .unwrap_or(serde_json::json!("urn:ietf:params:jmap:account"));
+    let mailbox_id = call
+        .args
+        .get("filter")
+        .and_then(|f| f.get("inMailbox"))
+        .and_then(|m| m.as_str())
+        .unwrap_or("inbox");
+    let folder = match mailbox_id {
+        "sent" => "Sent",
+        "drafts" => "Drafts",
+        "junk" => "Junk",
+        "trash" => "Trash",
+        _ => "INBOX",
+    };
+    if call.name == "Email/query" {
+        let msgs = crate::imap::fetch_messages(root, email, folder, 500)
+            .await
+            .unwrap_or_default();
+        let ids: Vec<String> = msgs.iter().map(|m| m.uid.to_string()).collect();
+        return serde_json::json!({"accountId": account, "ids": ids, "total": msgs.len()});
+    }
+    // Email/get: ids may be given; default to all in the queried mailbox.
+    let msgs = crate::imap::fetch_messages(root, email, folder, 500)
+        .await
+        .unwrap_or_default();
+    let want: Vec<String> = match call.args.get("ids").and_then(|i| i.as_array()) {
+        Some(arr) => arr
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect(),
+        None => msgs.iter().map(|m| m.uid.to_string()).collect(),
+    };
+    let mut list = Vec::new();
+    let mut not_found = Vec::new();
+    for id in &want {
+        match id.parse::<u32>().ok() {
+            Some(uid) => match crate::imap::fetch_raw(root, email, folder, uid).await {
+                Ok(raw) => {
+                    let meta = crate::imap::fetch_message(root, email, folder, uid)
+                        .await
+                        .ok();
+                    list.push(serde_json::json!({
+                        "id": id,
+                        "subject": meta.as_ref().map(|m| m.subject.clone()).unwrap_or_default(),
+                        "from": meta.as_ref().map(|m| m.from.clone()).unwrap_or_default(),
+                        "receivedAt": meta.as_ref().map(|m| m.date.clone()).unwrap_or_default(),
+                        "body": raw,
+                    }));
+                }
+                Err(_) => not_found.push(serde_json::json!(id)),
+            },
+            None => not_found.push(serde_json::json!(id)),
+        }
+    }
+    serde_json::json!({
+        "accountId": account,
+        "list": list,
+        "notFound": not_found,
+        "notModified": false,
+    })
 }
 
 async fn healthz() -> Json<serde_json::Value> {
@@ -269,19 +338,20 @@ struct MailQuery {
     limit: Option<usize>,
 }
 
-/// H-10: IMAP is still a stub — be honest instead of faking success.
-fn not_implemented() -> ErrorResponse {
-    ErrorResponse(AppError::NotImplemented(
-        "webmail IMAP integration is not yet implemented".into(),
-    ))
+/// H-10: mail access via the shared Maildir (user-scoped, no fake success).
+fn maildir_root() -> String {
+    std::env::var("MAILDIR_DIR").unwrap_or_else(|_| "/var/vmail".to_string())
 }
 
 async fn list_folders(
     State(s): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, ErrorResponse> {
-    authenticate_user(&s, &headers).await?;
-    Err(not_implemented())
+    let user = authenticate_user(&s, &headers).await?;
+    let folders = crate::imap::list_folders(&maildir_root(), &user.email)
+        .await
+        .map_err(|e| ErrorResponse(AppError::Internal(e.to_string())))?;
+    Ok(Json(serde_json::json!({"folders": folders})))
 }
 
 async fn list_messages(
@@ -289,18 +359,39 @@ async fn list_messages(
     headers: HeaderMap,
     Query(q): Query<MailQuery>,
 ) -> Result<Json<serde_json::Value>, ErrorResponse> {
-    authenticate_user(&s, &headers).await?;
-    let _ = q;
-    Err(not_implemented())
+    let user = authenticate_user(&s, &headers).await?;
+    let msgs = crate::imap::fetch_messages(
+        &maildir_root(),
+        &user.email,
+        q.folder.as_deref().unwrap_or("INBOX"),
+        q.limit.unwrap_or(50).min(200),
+    )
+    .await
+    .map_err(|e| ErrorResponse(AppError::Internal(e.to_string())))?;
+    Ok(Json(
+        serde_json::json!({"messages": msgs.into_iter().map(|m| serde_json::json!({
+        "uid": m.uid, "subject": m.subject, "from": m.from, "date": m.date,
+        "preview": m.preview, "seen": m.seen, "message_id": m.message_id
+    })).collect::<Vec<_>>()}),
+    ))
 }
 
 async fn get_message(
     State(s): State<AppState>,
     headers: HeaderMap,
-    Path(_uid): Path<u32>,
+    Path(uid): Path<u32>,
 ) -> Result<Json<serde_json::Value>, ErrorResponse> {
-    authenticate_user(&s, &headers).await?;
-    Err(not_implemented())
+    let user = authenticate_user(&s, &headers).await?;
+    let m = crate::imap::fetch_message(&maildir_root(), &user.email, "INBOX", uid)
+        .await
+        .map_err(|e| ErrorResponse(AppError::NotFound(e.to_string())))?;
+    let raw = crate::imap::fetch_raw(&maildir_root(), &user.email, "INBOX", uid)
+        .await
+        .unwrap_or_default();
+    Ok(Json(serde_json::json!({
+        "uid": m.uid, "subject": m.subject, "from": m.from, "date": m.date,
+        "seen": m.seen, "message_id": m.message_id, "raw": raw
+    })))
 }
 
 #[derive(Debug, Deserialize)]
@@ -349,37 +440,68 @@ async fn send(
     if !req.from.eq_ignore_ascii_case(&user.email) {
         return Err(ErrorResponse(AppError::Forbidden));
     }
-    // H-10: honest 501, not a fake "queued".
-    Err(not_implemented())
+    // Outbound submission via Postfix on the mailnet (network-trusted;
+    // external SASL submission is the hardened path — see security runbook).
+    let smtp_host = std::env::var("SMTP_HOST").unwrap_or_else(|_| "postfix".to_string());
+    let from: lettre::message::Mailbox = req
+        .from
+        .parse()
+        .map_err(|_| ErrorResponse(AppError::Validation("invalid from".into())))?;
+    let to: lettre::message::Mailbox = req
+        .to
+        .parse()
+        .map_err(|_| ErrorResponse(AppError::Validation("invalid to".into())))?;
+    let email = lettre::Message::builder()
+        .from(from)
+        .to(to)
+        .subject(req.subject.clone())
+        .body(req.body.clone())
+        .map_err(|e| ErrorResponse(AppError::Validation(e.to_string())))?;
+    let mailer = lettre::SmtpTransport::builder_dangerous(&smtp_host).build();
+    // Sync lettre transport (no async-std dep); run off the runtime thread.
+    let envelope = email.envelope().clone();
+    let raw = email.formatted();
+    tokio::task::spawn_blocking(move || {
+        use lettre::Transport;
+        mailer.send_raw(&envelope, &raw)
+    })
+    .await
+    .map_err(|e| ErrorResponse(AppError::Internal(e.to_string())))?
+    .map_err(|e| ErrorResponse(AppError::Internal(e.to_string())))?;
+    synth_common::metrics::inc_mail_sent();
+    Ok(Json(serde_json::json!({"status": "sent"})))
 }
 
 #[derive(Debug, Deserialize)]
 struct DraftQuery {
-    q: String,
+    #[serde(default)]
+    q: Option<String>,
 }
+
 async fn list_drafts(
     State(s): State<AppState>,
     headers: HeaderMap,
     Query(_qq): Query<DraftQuery>,
 ) -> Result<Json<serde_json::Value>, ErrorResponse> {
-    authenticate_user(&s, &headers).await?;
-    Err(not_implemented())
+    let user = authenticate_user(&s, &headers).await?;
+    let msgs = crate::imap::fetch_messages(&maildir_root(), &user.email, "Drafts", 50)
+        .await
+        .map_err(|e| ErrorResponse(AppError::Internal(e.to_string())))?;
+    Ok(Json(
+        serde_json::json!({"drafts": msgs.into_iter().map(|m| serde_json::json!({
+        "uid": m.uid, "subject": m.subject, "from": m.from, "date": m.date, "preview": m.preview
+    })).collect::<Vec<_>>()}),
+    ))
 }
 async fn delete_draft(
     State(s): State<AppState>,
     headers: HeaderMap,
-    Json(_v): Json<serde_json::Value>,
+    Json(v): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ErrorResponse> {
-    authenticate_user(&s, &headers).await?;
-    Err(not_implemented())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[tokio::test]
-    async fn not_implemented_is_501() {
-        let r = not_implemented();
-        assert_eq!(r.0.status().as_u16(), 501);
-    }
+    let user = authenticate_user(&s, &headers).await?;
+    let uid = v["uid"].as_u64().unwrap_or(0) as u32;
+    let moved = crate::imap::move_to_trash(&maildir_root(), &user.email, "Drafts", uid)
+        .await
+        .map_err(|e| ErrorResponse(AppError::Internal(e.to_string())))?;
+    Ok(Json(serde_json::json!({"deleted": moved})))
 }

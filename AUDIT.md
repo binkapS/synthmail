@@ -621,7 +621,7 @@ Only `inc_auth_attempt` is called (and only on successful password verification,
 - [x] Enforce TOTP in webmail login or remove the separate login (C-03). ✅
 - [x] Add authentication + `user_id` scoping to all webmail/JMAP/DAV/search/push routes (C-04, H-12). ✅
 - [x] Remove default JWT secret and default admin; fail startup on placeholders; pass `INITIAL_ADMIN_*` correctly (C-05). ✅
-- [ ] Implement TLS end-to-end (ACME client + fail-closed listeners) or document a manual-cert prerequisite and disable plaintext (C-06).
+- [x] Implement TLS end-to-end (ACME client + fail-closed listeners) (C-06). ✅ Opt-in `acme` profile (certbot HTTP-01, renewal loop); `REQUIRE_TLS=true` fail-closed in postfix+dovecot; dovecot `ssl = required`; postfix `smtpd_tls_auth_only = yes`; plaintext ports loopback-bound; edge 443 only with certs. (Re-verified 2026-11-07.)
 - [x] Restrict the SMTP shim (documented trusted-networks-only + startup warning) and fix the lost-body bug (C-07, H-14). ✅ ⚠️ Shim is still unauthenticated by design — bind it to loopback/a private network in production.
 - [x] Enforce API token expiry and scopes (H-01). ✅
 
@@ -632,11 +632,11 @@ Only `inc_auth_attempt` is called (and only on successful password verification,
 - [x] Add session revocation on logout/password reset/2FA change (H-04). ✅ (24h TTL retained, `token_version` revocation)
 - [x] Stop publishing internal ports; bind admin/monitoring to localhost; remove Grafana `admin/admin` (H-05). ✅
 - [x] Add `postfix-pgsql` and the pgsql map files (H-06). ✅ ⚠️ Container smoke test (`postmap -q`) not yet run.
-- [ ] Encrypt DKIM keys and sync them to OpenDKIM; generate KeyTable/SigningTable (H-07). ⚠️ Partial: ed25519 PKCS#8 fixed (M-12 ✅); key encryption + OpenDKIM sync still open.
+- [x] Encrypt DKIM keys and sync them to OpenDKIM; generate KeyTable/SigningTable (H-07). ✅ AES-256-GCM `synth_common::secrets` (ENCRYPTION_KEY) at rest; synth-control syncs key files + tables to the shared `dkim` volume (`/var/dkim-sync`); `MinimumKeyBits 2048`. (Re-verified 2026-11-07.)
 - [x] Fix Redis auth/config mismatch (H-08). ✅ (`--requirepass` + healthcheck auth)
 - [x] Replace the broken backup service (H-09). ✅ ⚠️ postgres:16-alpine + PGPASSWORD + mounts; encryption/checksum/restore test still open.
 - [x] Return `501` for stubbed webmail features instead of fake success (H-10); search is `user_id`-scoped (M-11). ✅
-- [ ] Build and serve the admin UI (H-11).
+- [x] Build and serve the admin UI (H-11). ✅ Trunk multi-stage build (`docker/synth-ui/Dockerfile`, wasm32), `synth-ui` compose service, edge `/admin/` (80+443), WASM check in CI. (Re-verified 2026-11-07.)
 - [x] Fix Rspamd config (H-13). ✅ (split into `local.d/` snippets) ⚠️ Pass `rspamadm configtest` in CI.
 - [x] Make CI truly fail on clippy/migration/test failures (M-18). ✅ workspace `-D warnings`, `pipefail`, real `sqlx migrate run`
 - [x] Correct the project status claims in docs (M-19). ✅ (README status section + CHANGELOG-AUDIT.md)
@@ -655,19 +655,19 @@ Only `inc_auth_attempt` is called (and only on successful password verification,
 - [x] Make watchdog status real; ACME challenge validated + async I/O; backup age checked (M-10). ✅ ⚠️ No real ACME client — challenge endpoint only serves a manually/populated directory.
 - [x] Validate DMARC ingestion (M-13).
 - [x] Strengthen input validation/RBAC/last-admin protection (M-14).
-- [ ] Pin images, add `.dockerignore`, non-root users, LICENSE, toolchain (M-16). ⚠️ Partial: `.dockerignore` added, nginx/grafana/prometheus/radicale pinned; non-root/`--locked`/toolchain still open.
-- [ ] Fix or remove the HA overlay (M-17). ❌ Open.
-- [ ] Add real metrics and dashboards (M-20, M-21). ⚠️ Partial: auth failure/request counters wired; queue/DB gauges + Grafana dashboards still open.
+- [x] Pin images, add `.dockerignore`, non-root users, LICENSE, toolchain (M-16). ✅ `.dockerignore`, `LICENSE`, `rust-toolchain.toml` (stable), `cargo build --locked` in Rust Dockerfiles, non-root `appuser` (synth-control chowns dkim volume then drops privileges), versioned image pins (rspamd 3.6.0, certbot v4.0.0 verified on Docker Hub; clamav is upstream channel-pinned).
+- [x] Fix or remove the HA overlay (M-17). ✅ Removed (commit `1528979`); `docs/runbooks/ha.md` documents the Patroni future path. `docker/compose.ha.yaml` no longer exists.
+- [x] Add real metrics and dashboards (M-20, M-21). ✅ DB pool + postfix queue gauges, HTTP latency histogram (`{service}_http_request_latency_seconds`), Grafana datasource + overview dashboard with new panels; duplicate `postfix-queue` job removed (queue gauge is served by synth-control).
 - [x] Clear clippy/deprecation debt and enforce workspace warnings (M-22).
-- [ ] Normalize the data model (M-23). ❌ Open.
+- [x] Normalize the data model (M-23). ✅ `users.domain_id`/`aliases.domain_id` FKs + backfill + index, linked at user creation, domain delete deactivates users/aliases; `quota_overrides` dropped (drift eliminated); email-domain trigger (`fn_users_domain_managed`, `20261107000004_recheck.sql`).
 - [x] Stop resetting credentials on seed; stop logging hashes (M-24).
 
 ### P3 — Hygiene
 
-- [ ] Address L-01 through L-13. ⚠️ Done: L-01, L-02, L-03, L-04, L-05, L-06, L-08, L-09 (graceful shutdown), L-11, L-12. Open: L-07 (bench), L-10 (queue counts), L-13 (sw.js/icons).
-- [ ] Add integration tests. ⚠️ Unit tests added (SMTP verbatim body, Sieve validity, token/domain/email validation); DB-backed integration tests (two-user isolation, 2FA flows, migration up/down) still open.
-- [ ] Add `cargo audit`/`cargo deny`, secret scanning, and image scanning to CI.
-- [ ] Add end-to-end compose smoke: start all services, wait for health, log in, create domain/user, send/receive a message.
+- [x] Address L-01 through L-13. ✅ L-07 bench exits non-zero on regression + CI bench job; L-10 real deferred/active/hold spool counts in `/api/v1/queues`; L-13 PWA icons (192/512) + offline fallback document + Trunk copy-file.
+- [x] Add integration tests. ✅ DB-backed suite (`crates/synth-control/tests/integration_db.rs`: migrations apply, two-user `mail_search` isolation mirroring C-04/M-11) + `integration` CI job with Postgres service; skips gracefully without `DATABASE_URL`.
+- [x] Add `cargo audit`/`cargo deny`, secret scanning, and image scanning to CI. ✅ `security_scan` job: cargo-audit, gitleaks, trivy on the three app images.
+- [x] Add end-to-end compose smoke. ✅ `scripts/smoke.sh` (health wait, admin login, domain+user provisioning, send→delivery check via webmail APIs). CI smoke stays best-effort; run the script locally against a Docker host.
 
 ---
 

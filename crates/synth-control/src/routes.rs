@@ -88,7 +88,10 @@ pub fn router(state: AppState) -> Router {
 
 async fn count_requests(req: axum::http::Request<axum::body::Body>, next: Next) -> Response {
     synth_common::metrics::inc_api_request();
-    next.run(req).await
+    let t0 = std::time::Instant::now();
+    let resp = next.run(req).await;
+    synth_common::metrics::observe_request_latency(t0.elapsed().as_secs_f64());
+    resp
 }
 
 // ---------- Helpers ----------
@@ -1760,27 +1763,27 @@ async fn create_dmarc_report(
     Json(req): Json<DmarcCreate>,
 ) -> Result<Json<serde_json::Value>, ErrorResponse> {
     let _actor = require_admin(&s, &headers).await?;
-    // M-13: size limits + basic XML sanity before storing. A full XML parse
-    // with entity protection would need an XML parser dependency; the
-    // checks here reject the common XXE/billion-laughs shapes.
+    // M-13: size limit + full XML parse with entity protection (quick-xml,
+    // DTD rejected pre-parse; root must be <feedback>).
     if req.xml.len() > 1_000_000 {
         return Err(ErrorResponse(AppError::Validation(
             "report too large".into(),
         )));
     }
-    let lower = req.xml.to_lowercase();
-    if lower.contains("<!doctype")
-        || lower.contains("<!entity")
-        || lower.contains("<!--") && lower.contains("entity")
+    let (_root, summary) = synth_common::dmarc::parse_dmarc_report(&req.xml).map_err(|e| {
+        ErrorResponse(AppError::Validation(format!(
+            "invalid DMARC report XML: {e}"
+        )))
+    })?;
+    // Cross-check: the XML report_id must match the API field when present,
+    // so callers cannot file a report under another report's id.
+    if summary
+        .report_id
+        .as_deref()
+        .is_some_and(|xml_id| xml_id != req.report_id)
     {
         return Err(ErrorResponse(AppError::Validation(
-            "invalid DMARC report XML (DOCTYPE/ENTITY rejected)".into(),
-        )));
-    }
-    let trimmed = req.xml.trim_start();
-    if !trimmed.starts_with("<?xml") && !trimmed.starts_with("<feedback") {
-        return Err(ErrorResponse(AppError::Validation(
-            "invalid DMARC report XML".into(),
+            "report_id does not match XML content".into(),
         )));
     }
     if !matches!(
@@ -1795,9 +1798,15 @@ async fn create_dmarc_report(
     sqlx::query("INSERT INTO dmarc_reports (id, domain, report_id, xml, report_type) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (domain, report_id) DO NOTHING")
         .bind(id).bind(req.domain.to_lowercase()).bind(&req.report_id).bind(&req.xml).bind(&req.report_type)
         .execute(&s.pool).await.map_err(|e| ErrorResponse(AppError::Database(e)))?;
-    Ok(Json(
-        serde_json::json!({"id": id, "domain": req.domain, "report_id": req.report_id}),
-    ))
+    Ok(Json(serde_json::json!({
+        "id": id,
+        "domain": req.domain,
+        "report_id": req.report_id,
+        "org_name": summary.org_name,
+        "date_begin": summary.date_begin,
+        "date_end": summary.date_end,
+        "policy_domain": summary.policy_domain,
+    })))
 }
 
 async fn list_dmarc_reports(

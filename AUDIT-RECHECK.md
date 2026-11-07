@@ -227,27 +227,27 @@ The entrypoint `sed s|\${POSTGRES_PASSWORD}|${POSTGRES_PASSWORD}|` breaks or sil
 ## 4. Prioritized fix list (next round)
 
 **P0 — must close before public exposure:**
-- [ ] C-06: add an ACME client + renewal, fail-closed when certs are missing, `ssl = required`, `smtpd_tls_auth_only = yes`, disable plaintext 143/110 or bind them to loopback.
-- [ ] H-07: encrypt DKIM private keys (KMS/age) and sync keys + `KeyTable`/`SigningTable` to OpenDKIM; raise `MinimumKeyBits` to 2048.
-- [ ] M-15: encrypt TOTP secrets at rest (same KMS/age mechanism).
+- [x] C-06: ACME client + renewal (`acme` profile), fail-closed (`REQUIRE_TLS=true`), `ssl = required`, `smtpd_tls_auth_only = yes`, plaintext ports loopback-bound.
+- [x] H-07: AES-256-GCM (`synth_common::secrets`, ENCRYPTION_KEY) at rest; keys + KeyTable/SigningTable synced to the shared volume; `MinimumKeyBits 2048`.
+- [x] M-15: TOTP secrets encrypted at rest with the same `synth_common::secrets` mechanism (`enc:` prefix, legacy plaintext passthrough removed at rollout).
 
 **P1 — should close before beta:**
-- [ ] R-01/N-02: policy-check the seed admin password; keep the compose default misleading value removed; print the generated password once, not to logs.
-- [ ] N-08: pending-secret enrollment flow for 2FA.
-- [ ] R-04: enforce `force_password_change` in webmail/user self-APIs.
-- [ ] N-01/N-02: distributed rate limiting (Redis) + map eviction.
-- [ ] N-04: schedule `reindex_batch` and tenant-filter `fts_indexer::search`.
-- [ ] N-06: narrow `mynetworks`; make milters fail-closed or alerting.
-- [ ] N-05/N-10: SMTP shim loopback default; document Stalwart as standalone.
-- [ ] H-11: add a Trunk build + static serving + WASM CI job.
-- [ ] H-09: restore rclone/encrypted, checksummed, restore-tested backup.
-- [ ] M-17: finish or remove the HA overlay; M-16: pin images/digests, `.dockerignore`, `--locked`, non-root users.
+- [x] R-01/N-02: seed password passes the password policy; generated one-time password goes to a 0600 file, never logs.
+- [x] N-08: pending-secret enrollment (`secret_pending` + expiry; activates only on verify; no session bump mid-flow).
+- [x] R-04: `force_password_change` enforced in webmail `authenticate_user` (and control admin gate).
+- [x] N-01: Redis-shared rate limiter with eviction (`with_redis`); map eviction on every check.
+- [x] N-04: indexer spawned in `webmail/main.rs` (60 s loop); `fts_indexer::search` takes `user_id`.
+- [x] N-06: `mynetworks` narrowed to loopback + `172.17.0.0/16`; `milter_default_action = reject`.
+- [x] N-05/N-10: shim `--host` defaults to `127.0.0.1` with idle timeouts + connection caps; Stalwart overlay documented standalone-only + loopback ports.
+- [x] H-11: Trunk multi-stage Dockerfile, `synth-ui` service behind edge `/admin/`, WASM check in CI.
+- [x] H-09: `docker/backup` image (postgres-client + tar + rclone) with sha256 checksums, retention pruning, off-site sync.
+- [x] M-17/M-16: HA overlay removed (runbook documents Patroni path); pins, `.dockerignore`, `--locked`, non-root users, toolchain — see AUDIT.md.
 
 **P2 — hardening:**
-- [ ] N-03 auth on `/dav` discovery; N-07 config-test CI; N-11 release lockfile; N-12 sed → safe substitution; N-13 `ssl = required`.
-- [ ] DMARC ingestion: parse/validate XML with entity protection.
-- [ ] M-20/M-21: add latency/queue gauges, remove the duplicate Prometheus job, add a Postfix exporter.
-- [ ] M-23: normalize `users`/`aliases` domain references; deprecate `quota_overrides` or wire it.
+- [x] N-03/N-07/N-11/N-12/N-13: DAV discovery authenticated; CI config tests (postfix check, rspamadm configtest, doveconf); release digest lockfile; awk-based password substitution (no `&`/`;` trap); `ssl = required`.
+- [x] DMARC ingestion: real `quick-xml` parse (`synth_common::dmarc`), DTD rejected pre-parse (XXE/billion-laughs), `<feedback>` root required, report_id cross-checked against XML, summary fields returned.
+- [x] M-20/M-21: latency histogram + queue/DB gauges; duplicate job removed (queue gauge documented as the exporter path).
+- [x] M-23: domain FKs + backfill (AUDIT.md `20261107000004_datamodel.sql`), user-creation linking, domain-delete deactivation; `quota_overrides` dropped in `20261107000004_recheck.sql` + email-domain trigger.
 
 ---
 

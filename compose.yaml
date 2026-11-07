@@ -201,10 +201,14 @@ services:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
       - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET must be set}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set (64 hex chars)}
+      - MAILDIR_DIR=/var/vmail
+      - SMTP_HOST=postfix
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
       dovecot: { condition: service_healthy }
+    volumes:
+      - maildir:/var/vmail
     networks: [mailnet, edge]
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/healthz"]
