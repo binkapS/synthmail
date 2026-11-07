@@ -77,22 +77,24 @@ pub fn totp_for(secret: &str, time_secs: u64) -> Result<String> {
 }
 
 pub fn verify(secret: &str, code: &str, time_secs: u64) -> bool {
+    verify_with_step(secret, code, time_secs).is_some()
+}
+
+/// Verify and return the HOTP counter step that matched, so callers can store
+/// it in `last_used_step` and reject replays of the same code (L-01, C-02).
+pub fn verify_with_step(secret: &str, code: &str, time_secs: u64) -> Option<u64> {
     if code.len() != 6 || !code.chars().all(|c| c.is_ascii_digit()) {
-        return false;
+        return None;
     }
-    for delta in [0u64, 1u64] {
-        for t in [time_secs.checked_sub(delta), time_secs.checked_add(delta)]
-            .into_iter()
-            .flatten()
+    for delta in [0i64, 1, -1] {
+        let t = (time_secs as i64 + delta).try_into().ok()?;
+        if let Ok(expected) = totp_for(secret, t)
+            && expected == code
         {
-            if let Ok(expected) = totp_for(secret, t)
-                && expected == code
-            {
-                return true;
-            }
+            return Some(t / 30);
         }
     }
-    false
+    None
 }
 
 pub fn otpauth_url(secret: &str, account: &str, issuer: &str) -> String {

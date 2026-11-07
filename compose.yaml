@@ -1,11 +1,20 @@
 services:
   edge:
     image: nginx:alpine
+    command:
+      - /bin/sh
+      - -c
+      - rm -f /etc/nginx/conf.d/default.conf;
+        if [ -f /etc/letsencrypt/live/mail.example.com/fullchain.pem ]; then
+        cp /etc/nginx/443.conf.example /etc/nginx/conf.d/443.conf;
+        else rm -f /etc/nginx/conf.d/443.conf; fi;
+        exec nginx -g 'daemon off;'
     ports:
       - "80:80"
       - "443:443"
     volumes:
       - ./docker/edge/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/edge/443.conf.example:/etc/nginx/443.conf.example:ro
       - certs:/etc/letsencrypt
     depends_on: [synth-control, synth-webmail]
     networks: [mailnet, edge]
@@ -25,6 +34,7 @@ services:
       - "587:587"
     volumes:
       - postfix-spool:/var/spool/postfix
+      - logs:/var/log
       - maildir:/var/vmail
       - certs:/etc/letsencrypt
       - ./docker/postfix/main.cf:/etc/postfix/main.cf:ro
@@ -49,6 +59,7 @@ services:
       - "4190:4190"
     volumes:
       - maildir:/var/vmail
+      - logs:/var/log
       - certs:/etc/letsencrypt
       - postfix-spool:/var/spool/postfix
     environment:
@@ -73,7 +84,8 @@ services:
     depends_on: [clamav, redis]
     networks: [mailnet]
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:11334/ping"]
+      # GET (not HEAD): rspamd /ping rejects HEAD, which --spider sends.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:11334/ping || exit 1"]
       interval: 30s
       timeout: 5s
     restart: unless-stopped
@@ -84,7 +96,9 @@ services:
       - clamav:/var/lib/clamav
     networks: [mailnet]
     healthcheck:
-      test: ["CMD", "clamdscan", "--ping"]
+      # TCP probe on clamd's control port; clamdscan --ping is unreliable
+      # inside this image's socket layout.
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/3310' 2>/dev/null || exit 1"]
       interval: 30s
       timeout: 5s
     restart: unless-stopped
@@ -95,6 +109,12 @@ services:
     volumes:
       - clamav:/var/lib/clamav
     networks: [mailnet]
+    # Image's built-in HEALTHCHECK tests clamd, which never runs here;
+    # override with a process liveness probe.
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'freshclam -d' >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
     restart: unless-stopped
 
   opendkim:
@@ -206,10 +226,12 @@ services:
     restart: unless-stopped
 
   fail2ban:
-    image: linuxserver/fail2ban:latest
+    build:
+      context: ./docker/fail2ban
+      dockerfile: Dockerfile
     volumes:
-      - ./docker/fail2ban/jail.local:/etc/fail2ban/jail.local:ro
-      - ./docker/fail2ban/filter.d:/etc/fail2ban/filter.d:ro
+      - logs:/var/log
+    depends_on: [postfix, dovecot]
     networks: [mailnet]
     healthcheck:
       test: ["CMD", "fail2ban-client", "status"]
@@ -272,6 +294,7 @@ services:
 volumes:
   maildir:
   postfix-spool:
+  logs:
   postgres:
   redis:
   rspamd:
