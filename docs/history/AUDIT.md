@@ -1,3 +1,4 @@
+<!-- ARCHIVED 2026-11-07: all 54 original findings plus all re-audit P0/P1/P2 items are closed; see README.md Status and CHANGELOG.md. This file is the historical record; do not edit. -->
 # SynthMail — Project Audit
 
 **Audit date:** 2026-11-07  

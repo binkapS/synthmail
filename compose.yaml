@@ -353,6 +353,28 @@ services:
       postgres: { condition: service_healthy }
     networks: [mailnet]
 
+  backup-restore-test:
+    # One-shot restore dry-run: checksums + pg_restore --list + tar list.
+    # Dry-run by default (RESTORE_EXECUTE unset). Run with:
+    #   docker compose --profile backup-test run --rm backup-restore-test
+    # To really restore, set RESTORE_EXECUTE=true and a spare target.
+    build:
+      context: ./docker/backup
+      dockerfile: Dockerfile
+    profiles: ["backup-test"]
+    entrypoint: ["/usr/local/bin/restore.sh"]
+    command: ["--dry-run"]
+    volumes:
+      - backups:/backups:ro
+    environment:
+      - BACKUP_DIR=/backups
+      - RESTORE_DIR=/restore
+      - RESTORE_EXECUTE=${RESTORE_EXECUTE:-false}
+      - PGPASSWORD=${POSTGRES_PASSWORD:-}
+      - PGUSER=${POSTGRES_USER:-synth}
+      - PGDB=${POSTGRES_DB:-synthmail}
+    networks: [mailnet]
+
   acme:
     # Let's Encrypt HTTP-01 challenges served by synth-watchdog :8081
     # (audit C-06). Run: docker compose --profile acme run --rm acme

@@ -203,6 +203,120 @@ pub async fn move_to_trash(root: &str, email: &str, folder: &str, uid: u32) -> R
     Ok(true)
 }
 
+/// Delete a message by moving it to Trash; the Maildir equivalent of
+/// IMAP `EXPUNGE`-after-delete. Returns true when a file was moved.
+/// When `folder` is already `Trash`, `move_to_trash` renames the file
+/// in place and still returns true (documented no-op corner).
+pub async fn delete_message(root: &str, email: &str, folder: &str, uid: u32) -> Result<bool> {
+    move_to_trash(root, email, folder, uid).await
+}
+
+fn valid_folder(folder: &str) -> Result<()> {
+    if folder.is_empty()
+        || folder.contains('/')
+        || folder.contains('\\')
+        || folder.contains('\0')
+        || folder == "."
+        || folder == ".."
+    {
+        anyhow::bail!("invalid folder name");
+    }
+    Ok(())
+}
+
+static CREATE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Build the unique Maildir filename base (without the `:2,` charset
+/// suffix): unix-timestamp micros + pid + monotonic counter + 4 random
+/// bytes from a v4 UUID. Std-only entropy (no new deps); collisions are
+/// still detected against the destination directory in `create_message`.
+fn unique_filename_base() -> String {
+    let micros = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_micros())
+        .unwrap_or(0);
+    let counter = CREATE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let bytes = uuid::Uuid::new_v4().into_bytes();
+    format!(
+        "{micros}.{}.{counter:x}.{:02x}{:02x}{:02x}{:02x}",
+        std::process::id(),
+        bytes[0],
+        bytes[1],
+        bytes[2],
+        bytes[3]
+    )
+}
+
+/// Create a message in the given folder's `cur/` directory and return
+/// its positional UID (the same numbering `fetch_messages` exposes, so
+/// `create_message` -> `fetch_message` round-trips).
+///
+/// The message is written to `tmp/` first and renamed into `cur/` so a
+/// concurrent reader never sees a partial file; the final file is
+/// created with mode `0600` on Unix. `raw` is normalized to end with
+/// CRLF. Folders are validated (no path separators) and the caller
+/// (routes) already maps JMAP mailbox ids onto fixed, safe names.
+pub async fn create_message(root: &str, email: &str, folder: &str, raw: &[u8]) -> Result<u32> {
+    valid_folder(folder)?;
+    let mbox = mailbox_dir(root, email).context("bad email")?;
+    let dir = folder_dir(&mbox, folder);
+    let cur = dir.join("cur");
+    let tmp = dir.join("tmp");
+    std::fs::create_dir_all(&cur).context("create cur")?;
+    std::fs::create_dir_all(&tmp).context("create tmp")?;
+    let mut bytes = raw.to_vec();
+    if !bytes.ends_with(b"\r\n") {
+        if bytes.ends_with(b"\n") {
+            let len = bytes.len();
+            bytes.insert(len - 1, b'\r');
+        } else {
+            bytes.extend_from_slice(b"\r\n");
+        }
+    }
+    let mut last_err = None;
+    for _ in 0..8 {
+        let name = format!("{}:2,", unique_filename_base());
+        let tmp_path = tmp.join(&name);
+        let cur_path = cur.join(&name);
+        if tmp_path.exists() || cur_path.exists() {
+            continue;
+        }
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
+        }
+        use std::io::Write;
+        match opts.open(&tmp_path) {
+            Ok(mut f) => {
+                if f.write_all(&bytes).is_err() {
+                    last_err = Some("write message failed".to_string());
+                    let _ = std::fs::remove_file(&tmp_path);
+                    continue;
+                }
+            }
+            Err(e) => {
+                last_err = Some(e.to_string());
+                continue;
+            }
+        }
+        if let Err(e) = std::fs::rename(&tmp_path, &cur_path) {
+            last_err = Some(e.to_string());
+            let _ = std::fs::remove_file(&tmp_path);
+            continue;
+        }
+        let files = list_files(&dir);
+        let pos = files
+            .iter()
+            .position(|p| p == &cur_path)
+            .context("created message not found in listing")?;
+        return Ok((pos + 1) as u32);
+    }
+    anyhow::bail!(last_err.unwrap_or_else(|| "could not create unique filename".to_string()))
+}
+
 pub fn sanitize_preview(body: &str) -> String {
     body.chars()
         .take(200)
@@ -254,6 +368,80 @@ mod tests {
         let one = fetch_message(&root_s, &email, "INBOX", 1).await.unwrap();
         assert_eq!(one.uid, 1);
         assert!(fetch_message(&root_s, &email, "INBOX", 9).await.is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    fn fixture_maildir_empty() -> (std::path::PathBuf, String) {
+        let dir = std::env::temp_dir().join(format!("synthmail-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("example.com/alice")).unwrap();
+        (dir, "alice@example.com".to_string())
+    }
+
+    #[tokio::test]
+    async fn create_and_delete_roundtrip() {
+        let (root, email) = fixture_maildir_empty();
+        let root_s = root.to_string_lossy().into_owned();
+        let raw = b"From: alice@example.com\r\nTo: bob@example.org\r\nSubject: hi\r\n\r\nbody\r\n";
+        let uid = create_message(&root_s, &email, "Drafts", raw)
+            .await
+            .unwrap();
+        assert_eq!(uid, 1);
+        let cur = root.join("example.com/alice/.Drafts/cur");
+        let files: Vec<_> = std::fs::read_dir(&cur).unwrap().flatten().collect();
+        assert_eq!(files.len(), 1);
+        let written = &files[0].path();
+        assert!(
+            written
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .ends_with(":2,"),
+            "charset suffix present"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(written).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600);
+        }
+        let msg = fetch_message(&root_s, &email, "Drafts", uid).await.unwrap();
+        assert_eq!(msg.subject, "hi");
+        assert!(
+            delete_message(&root_s, &email, "Drafts", uid)
+                .await
+                .unwrap()
+        );
+        assert!(
+            fetch_messages(&root_s, &email, "Drafts", 10)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        let trash = root.join("example.com/alice/.Trash/cur");
+        let trashed: Vec<_> = std::fs::read_dir(&trash).unwrap().flatten().collect();
+        assert_eq!(trashed.len(), 1);
+        assert!(
+            !delete_message(&root_s, &email, "Drafts", uid)
+                .await
+                .unwrap()
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn create_rejects_bad_folder_and_email() {
+        let (root, email) = fixture_maildir_empty();
+        let root_s = root.to_string_lossy().into_owned();
+        assert!(
+            create_message(&root_s, &email, "../etc", b"Subject: x\n\n")
+                .await
+                .is_err()
+        );
+        assert!(
+            create_message(&root_s, "not-an-email", "Drafts", b"Subject: x\n\n")
+                .await
+                .is_err()
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 }

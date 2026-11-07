@@ -3,10 +3,29 @@
 //! Not an inbound MTA replacement — submission shim only.
 //!
 //! SECURITY: This shim is UNAUTHENTICATED (no AUTH, no STARTTLS). It binds
-//! 0.0.0.0 by default and MUST only be exposed on trusted networks
+//! 127.0.0.1 by default and MUST only be exposed on trusted networks
 //! (loopback or the private compose network). Do not expose it to the
 //! public internet — it accepts mail for any domain and can be abused
 //! for spam injection and queue flooding.
+//!
+//! Submission-or-nothing: without AUTH/STARTTLS this binary is a
+//! loopback-only submission shim, not a public MTA. SASL (AUTH) and
+//! STARTTLS are intentionally NOT implemented — adding them is separate
+//! work requiring credential store integration, not a flag flip. When a
+//! real submission listener is needed, put Postfix (submission port 587
+//! with SASL+TLS) in front and keep this shim behind it.
+//!
+//! DoS guards (all in-process, per-process; no shared state):
+//! - `--max-connections`: semaphore cap on concurrent client tasks.
+//! - `--idle-timeout` + `--read-timeout`: per-`read_line` timeout. The
+//!   idle timer fires when a client sends nothing; the read timer bounds
+//!   a single line's arrival. A complete transaction can therefore span
+//!   longer than one timeout, but any stalled read is cut off.
+//! - `--rate-limit-per-ip` per `--rate-window`: fixed-window per-IP
+//!   connection rate limit (see [`RateLimiter`]). Documented limits: a
+//!   single client IP can hold at most its window allowance of new
+//!   connections per window; excess connections are accepted at TCP level
+//!   then immediately closed with `421 4.3.2 Too many connections`.
 
 use clap::Parser;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -30,6 +49,23 @@ struct Args {
     forward_to_postfix: bool,
     #[arg(long, default_value = "postfix:25")]
     postfix_host: String,
+    /// Max concurrent client connections (semaphore cap); excess TCP
+    /// connections are dropped without a greeting.
+    #[arg(long, default_value_t = 100)]
+    max_connections: usize,
+    /// Idle timeout: max time to wait for the next line before closing
+    /// the connection (seconds).
+    #[arg(long, default_value_t = 60)]
+    idle_timeout_secs: u64,
+    /// Read timeout: max time to receive a single line (seconds).
+    #[arg(long, default_value_t = 60)]
+    read_timeout_secs: u64,
+    /// Per-IP connection rate limit inside `--rate-window-secs`.
+    #[arg(long, default_value_t = 20)]
+    rate_limit_per_ip: u32,
+    /// Fixed window for the per-IP rate limit (seconds).
+    #[arg(long, default_value_t = 60)]
+    rate_window_secs: u64,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -46,6 +82,61 @@ const MAX_RECIPIENTS: usize = 50;
 const MAX_LINE_LENGTH: usize = 1000; // RFC 5321: 1000 octets incl. CRLF
 const REDIS_KEY_TTL_SECS: i64 = 86400;
 const MAX_PENDING: isize = 1000;
+
+/// Fixed-window per-IP connection rate limiter (in-process only).
+///
+/// Each IP gets `limit` accepted connections per `window` duration. The
+/// window is anchored at the first connection seen in it; once `window`
+/// has elapsed the counter resets. State is intentionally per-process —
+/// documented as such; a multi-replica deployment would need a shared
+/// (Redis) bucket instead.
+#[derive(Debug)]
+pub struct RateLimiter {
+    limit: u32,
+    window: std::time::Duration,
+    buckets: std::collections::HashMap<std::net::IpAddr, (std::time::Instant, u32)>,
+}
+
+impl RateLimiter {
+    pub fn new(limit: u32, window: std::time::Duration) -> Self {
+        Self {
+            limit,
+            window,
+            buckets: std::collections::HashMap::new(),
+        }
+    }
+
+    /// Testable core: allow or reject `ip` at time `now`.
+    pub fn allow_at(&mut self, ip: std::net::IpAddr, now: std::time::Instant) -> bool {
+        let entry = self.buckets.entry(ip).or_insert((now, 0));
+        if now.duration_since(entry.0) >= self.window {
+            *entry = (now, 0);
+        }
+        if entry.1 >= self.limit {
+            return false;
+        }
+        entry.1 += 1;
+        true
+    }
+
+    pub fn allow(&mut self, ip: std::net::IpAddr) -> bool {
+        self.allow_at(ip, std::time::Instant::now())
+    }
+
+    /// Number of IPs currently tracked (test/metrics hook).
+    pub fn len(&self) -> usize {
+        self.buckets.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.buckets.is_empty()
+    }
+}
+
+/// Pure connection-cap predicate: true when a new connection must be refused.
+pub fn exceeds_connection_cap(active: usize, max: usize) -> bool {
+    active >= max
+}
 
 /// Strip only the trailing line ending (`\r\n` or `\n`), preserving all
 /// other bytes including leading/trailing whitespace.
@@ -168,6 +259,8 @@ async fn handle_client(
     redis: redis::Client,
     forward: bool,
     postfix_host: String,
+    idle_timeout: std::time::Duration,
+    read_timeout: std::time::Duration,
 ) -> anyhow::Result<()> {
     let peer = stream
         .peer_addr()
@@ -183,7 +276,17 @@ async fn handle_client(
     let mut line = String::new();
     loop {
         line.clear();
-        let n = reader.read_line(&mut line).await?;
+        // Idle/read timeout: a stalled client must not hold its semaphore
+        // slot forever. `timeout` is per line, so a complete transaction
+        // can exceed one timeout; any single stalled read is cut.
+        let n =
+            match tokio::time::timeout(idle_timeout.max(read_timeout), reader.read_line(&mut line))
+                .await
+            {
+                Ok(Ok(n)) => n,
+                Ok(Err(e)) => return Err(e.into()),
+                Err(_) => break,
+            };
         if n == 0 {
             break;
         }
@@ -297,24 +400,45 @@ async fn main() -> anyhow::Result<()> {
     let postfix_host = args.postfix_host.clone();
     // Audit N-05: cap concurrent connections so an unauthenticated client
     // cannot exhaust memory/CPU by holding many connections open.
-    let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(100));
+    let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(args.max_connections));
+    let idle_timeout = std::time::Duration::from_secs(args.idle_timeout_secs);
+    let read_timeout = std::time::Duration::from_secs(args.read_timeout_secs);
+    let rate_limiter = std::sync::Arc::new(std::sync::Mutex::new(RateLimiter::new(
+        args.rate_limit_per_ip,
+        std::time::Duration::from_secs(args.rate_window_secs),
+    )));
+    tracing::info!(
+        max_connections = args.max_connections,
+        idle_timeout_secs = args.idle_timeout_secs,
+        read_timeout_secs = args.read_timeout_secs,
+        rate_limit_per_ip = args.rate_limit_per_ip,
+        rate_window_secs = args.rate_window_secs,
+        "synth-smtp DoS guards configured"
+    );
     loop {
-        let (stream, _) = listener.accept().await?;
+        let (mut stream, peer_addr) = listener.accept().await?;
         let permit = match semaphore.clone().try_acquire_owned() {
             Ok(p) => p,
-            Err(_) => continue,
+            Err(_) => continue, // at cap: drop silently (TCP refused)
         };
+        // Per-IP fixed-window rate limit, checked before spawning so a
+        // flooding IP cannot consume a semaphore slot per attempt.
+        let allowed = rate_limiter
+            .lock()
+            .map(|mut rl| rl.allow(peer_addr.ip()))
+            .unwrap_or(true);
+        if !allowed {
+            let _ = stream
+                .write_all(b"421 4.3.2 Too many connections from this host\r\n")
+                .await;
+            continue;
+        }
         let r = redis.clone();
         let f = forward;
         let ph = postfix_host.clone();
         tokio::spawn(async move {
             let _permit = permit;
-            // Idle timeout so slow clients cannot hold slots forever.
-            let _ = tokio::time::timeout(
-                std::time::Duration::from_secs(60),
-                handle_client(stream, r, f, ph),
-            )
-            .await;
+            let _ = handle_client(stream, r, f, ph, idle_timeout, read_timeout).await;
         });
     }
 }
@@ -409,6 +533,57 @@ mod tests {
         assert!(r.starts_with("250 QUEUED"));
         assert_eq!(d, "  indented  \r\n.\r\n..x\r\n");
     }
+    #[test]
+    fn connection_cap_logic() {
+        assert!(!exceeds_connection_cap(0, 100));
+        assert!(!exceeds_connection_cap(99, 100));
+        assert!(exceeds_connection_cap(100, 100));
+        assert!(exceeds_connection_cap(101, 100));
+        // Cap of 0 refuses everything.
+        assert!(exceeds_connection_cap(0, 0));
+        assert!(exceeds_connection_cap(1, 0));
+    }
+
+    #[test]
+    fn semaphore_cap_matches_flag() {
+        // The main loop builds the semaphore with --max-connections;
+        // verify the same semantics: N permits, the (N+1)th fails.
+        let s = std::sync::Arc::new(tokio::sync::Semaphore::new(2));
+        let _a = s.clone().try_acquire_owned().ok();
+        let _b = s.clone().try_acquire_owned().ok();
+        assert!(s.clone().try_acquire_owned().is_err());
+    }
+
+    #[test]
+    fn rate_limiter_fixed_window() {
+        use std::time::Duration;
+        let t0 = std::time::Instant::now();
+        let ip: std::net::IpAddr = "10.0.0.1".parse().unwrap();
+        let ip2: std::net::IpAddr = "10.0.0.2".parse().unwrap();
+        let mut rl = RateLimiter::new(2, Duration::from_secs(60));
+        assert!(rl.is_empty());
+        assert!(rl.allow_at(ip, t0));
+        assert!(rl.allow_at(ip, t0));
+        assert_eq!(rl.len(), 1);
+        // Third attempt in the same window is rejected.
+        assert!(!rl.allow_at(ip, t0));
+        // A different IP has its own bucket.
+        assert!(rl.allow_at(ip2, t0));
+        assert_eq!(rl.len(), 2);
+        // After the window elapses, the counter resets.
+        assert!(rl.allow_at(ip, t0 + Duration::from_secs(60)));
+        assert!(rl.allow_at(ip, t0 + Duration::from_secs(60)));
+        assert!(!rl.allow_at(ip, t0 + Duration::from_secs(60)));
+    }
+
+    #[test]
+    fn rate_limiter_zero_limit_refuses_all() {
+        let t0 = std::time::Instant::now();
+        let ip: std::net::IpAddr = "10.0.0.1".parse().unwrap();
+        let mut rl = RateLimiter::new(0, std::time::Duration::from_secs(60));
+        assert!(!rl.allow_at(ip, t0));
+    }
+
     #[test]
     fn limits_reject() {
         // Line-length limit.

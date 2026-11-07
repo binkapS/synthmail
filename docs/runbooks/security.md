@@ -19,8 +19,8 @@ curl -X DELETE /api/v1/api-tokens/$ID -H "Authorization: Bearer $JWT"
 ```
 
 ## Rate limiting & fail2ban
-- `synth-common::rate_limit::RateLimiter` (30 req/min/IP default via `RATE_LIMIT_PER_MIN`) enforced on `/api/*` in edge; failures logged to `login_attempts`.
-- fail2ban jails (`docker/fail2ban/jail.local`): postfix-sasl, dovecot, synth-webmail (maxretry 5, bantime 1h escalating).
+- `synth-common::rate_limit::RateLimiter` (code default 120 req/min/IP, 30 in the shipped `.env.example`, via `RATE_LIMIT_PER_MIN`) enforced on `/api/*` in edge; failures logged to `login_attempts`.
+- fail2ban jails (`docker/fail2ban/jail.local`): postfix-sasl, dovecot (maxretry 5, bantime 1h). There is no synth-webmail jail — webmail throttling is enforced in-app via `login_attempts`.
 - `/api/v1/admin/bans` lists recent failures.
 
 ## HIBP breach check

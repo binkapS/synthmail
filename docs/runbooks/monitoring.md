@@ -11,7 +11,7 @@ docker compose --profile monitoring up -d prometheus grafana
 ## Grafana
 - Dashboard: `docker/monitoring/grafana-dashboards/synthmail-overview.json`
 - Provisioning: `docker/monitoring/grafana-provisioning/datasources.yml`
-- http://localhost:3001 (admin/admin)
+- http://localhost:3001 (admin; password from `GRAFANA_ADMIN_PASSWORD` in `.env`)
 
 ## Health & alerts
 - Watchdog polls postgres/redis/postfix/dovecot/rspamd/clamav every 60s; >2m down → webhook (`ALERT_WEBHOOK_URL`) or ntfy (`NTFY_TOPIC`).

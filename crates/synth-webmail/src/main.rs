@@ -1,5 +1,5 @@
-// Webmail mail access is Maildir-backed (see imap.rs); JMAP Email/set is
-// the only remaining honest stub (modeled, not implemented).
+// Webmail mail access is Maildir-backed (see imap.rs), including
+// JMAP Email/set create/update/destroy for drafts via routes::email_jmap.
 // supporting helpers below are intentionally kept.
 #![allow(dead_code)]
 mod app;

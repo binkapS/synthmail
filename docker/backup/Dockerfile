@@ -3,5 +3,6 @@
 FROM alpine:3.20
 RUN apk add --no-cache postgresql15-client rclone tar
 COPY run-backup.sh /usr/local/bin/run-backup.sh
-RUN chmod +x /usr/local/bin/run-backup.sh
+COPY restore.sh /usr/local/bin/restore.sh
+RUN chmod +x /usr/local/bin/run-backup.sh /usr/local/bin/restore.sh
 ENTRYPOINT ["/usr/local/bin/run-backup.sh"]

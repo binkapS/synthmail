@@ -1,8 +1,10 @@
+<!-- Original design spec (2026). Implementation is complete through Phase 4; see README.md for current status. Historical design doc. -->
+
 # SynthMail — Mail Server Plan
 
 > **Status:** v1.0 implemented — all phases complete (2026-11-08)
 > **Project root:** `/Cargo/synthmail` (fresh Rust workspace, edition 2024)
-> **Goal:** A self-hosted, Dockerized mail server like mailcow-dockerized, but rebuilt around a Rust control plane and modern web stack.
+> **Goal:** A self-hosted, Dockerized mail server, built around a Rust control plane and modern web stack.
 > **Author/Date:** 2026-11-07
 
 This document is the single source of truth for what SynthMail is, how it is architected, and how it will be built. It covers product scope, Docker topology, service-by-service specification, Rust codebase layout, data model, security, operations, and a phased roadmap.
@@ -36,19 +38,22 @@ This document is the single source of truth for what SynthMail is, how it is arc
 ## 1. Vision & Goals
 
 ### 1.1 Vision
+
 SynthMail is a modern, maintainable alternative to mailcow-dockerized for individuals, homelabs, and small teams who want full control of their email without running a sprawling collection of PHP/Python/C daemons. The heart of SynthMail is a single Rust control plane that replaces mailcow's glue scripts, PostfixAdmin, SOGo/GroupOffice, and cron jobs with typed, tested, observable services — while still delegating low-level mail delivery to battle-tested Postfix/Dovecot in v1.
 
 ### 1.2 Goals
-| # | Goal | Success Metric |
-|---|------|----------------|
-| G1 | 1-command Docker Compose deployment | `docker compose up -d` on a fresh VPS yields a working mail server with valid TLS |
-| G2 | Full mail stack parity with mailcow essentials | Send/receive, IMAP, SMTP submission, webmail, admin UI, spam filtering, antivirus, DKIM/SPF/DMARC, TLS, fail2ban |
-| G3 | Rust-first control plane | All management, provisioning, filtering rules, and web/API logic in Rust (no PHP/Python app code) |
-| G4 | Single config surface | One `.env` + one `compose.yaml` + one admin UI; no per-service config files scattered across the host |
-| G5 | Production-grade ops | Health checks, structured logs, metrics, backups, and graceful upgrades via Docker |
-| G6 | Secure by default | Let's Encrypt ACME, DANE/MTA-STS, strict TLS, fail2ban, rate limits, encrypted at rest |
+
+| #   | Goal                                           | Success Metric                                                                                                   |
+| --- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| G1  | 1-command Docker Compose deployment            | `docker compose up -d` on a fresh VPS yields a working mail server with valid TLS                                |
+| G2  | Full mail stack parity with mailcow essentials | Send/receive, IMAP, SMTP submission, webmail, admin UI, spam filtering, antivirus, DKIM/SPF/DMARC, TLS, fail2ban |
+| G3  | Rust-first control plane                       | All management, provisioning, filtering rules, and web/API logic in Rust (no PHP/Python app code)                |
+| G4  | Single config surface                          | One `.env` + one `compose.yaml` + one admin UI; no per-service config files scattered across the host            |
+| G5  | Production-grade ops                           | Health checks, structured logs, metrics, backups, and graceful upgrades via Docker                               |
+| G6  | Secure by default                              | Let's Encrypt ACME, DANE/MTA-STS, strict TLS, fail2ban, rate limits, encrypted at rest                           |
 
 ### 1.3 Non-Goals (v1)
+
 - Pure-Rust replacement for Postfix/Dovecot as the MTA on day 1 (evaluated in Phase 3).
 - Groupware/CalDAV/CardDAV sync (SOGo parity) — calendar/contacts planned for v1.5, see §12.
 - High-availability clustering / multi-node — single-host Docker Compose only for v1.
@@ -72,21 +77,21 @@ SynthMail is a modern, maintainable alternative to mailcow-dockerized for indivi
 
 mailcow-dockerized ships ~15 containers (postfix, dovecot, rspamd, clamav, freshclam, postfixd, mysql, redis, sogo, roundcube, phpfpm, nginx, fail2ban, postfix-tlspol, backup, watchdog, etc.). SynthMail consolidates to **10–12 containers** and removes PHP-FPM/MySQL/PHP-CGI entirely.
 
-| mailcow Feature | SynthMail Equivalent | Notes |
-|---|---|---|
-| Postfix (SMTP In/Out, submission) | `postfix` (Phase 1), `synth-smtp` (Phase 3 eval) | Keep Postfix for v1 deliverability |
-| Dovecot (IMAP/POP3/ManageSieve/LMTP) | `dovecot` (Phase 1) | LMTP for local delivery |
-| Rspamd (spam, greylisting, DKIM signing, DMARC check) | `rspamd` | Shared rules + SynthMail-managed settings via Redis |
-| ClamAV + FreshClam | `clamav` + `freshclam` | Same signatures, on-demand via Rspamd |
-| PostfixAdmin (PHP) | `synth-control` (Rust admin API + UI) | Replaces PHP-FPM + MariaDB with Rust + Postgres |
-| SOGo / Roundcube | `synth-webmail` (Rust backend + Leptos SPA) | IMAP/JMAP backend; CardDAV/CalDAV server in v1.5 |
-| MySQL/MariaDB | `postgres` (16) | All app + mail routing data |
-| Redis (rspamd, dovecot, fail2ban) | `redis` (7) | Shared backing store |
-| nginx (reverse proxy) | `edge` — nginx or Traefik | ACME + webmail/admin fronting |
-| Fail2Ban | `fail2ban` | Custom jail on `synth-control` and `postfix` logs |
-| opendkim / opendmarc (+ milter) | `opendkim`, `opendmarc` (milter mode) | DKIM signing on submission, DMARC verify on inbound |
-| Watchdog / Backup (mailcow) | `synth-watchdog` + `backup` sidecar | Rust health checks; `pg_dump` + maildir tar + `rclone` Off-site |
-| Cron jobs / update scripts | `synth-control` background tasks (Tokio) | No host cron |
+| mailcow Feature                                       | SynthMail Equivalent                             | Notes                                                           |
+| ----------------------------------------------------- | ------------------------------------------------ | --------------------------------------------------------------- |
+| Postfix (SMTP In/Out, submission)                     | `postfix` (Phase 1), `synth-smtp` (Phase 3 eval) | Keep Postfix for v1 deliverability                              |
+| Dovecot (IMAP/POP3/ManageSieve/LMTP)                  | `dovecot` (Phase 1)                              | LMTP for local delivery                                         |
+| Rspamd (spam, greylisting, DKIM signing, DMARC check) | `rspamd`                                         | Shared rules + SynthMail-managed settings via Redis             |
+| ClamAV + FreshClam                                    | `clamav` + `freshclam`                           | Same signatures, on-demand via Rspamd                           |
+| PostfixAdmin (PHP)                                    | `synth-control` (Rust admin API + UI)            | Replaces PHP-FPM + MariaDB with Rust + Postgres                 |
+| SOGo / Roundcube                                      | `synth-webmail` (Rust backend + Leptos SPA)      | IMAP/JMAP backend; CardDAV/CalDAV server in v1.5                |
+| MySQL/MariaDB                                         | `postgres` (16)                                  | All app + mail routing data                                     |
+| Redis (rspamd, dovecot, fail2ban)                     | `redis` (7)                                      | Shared backing store                                            |
+| nginx (reverse proxy)                                 | `edge` — nginx or Traefik                        | ACME + webmail/admin fronting                                   |
+| Fail2Ban                                              | `fail2ban`                                       | Custom jail on `synth-control` and `postfix` logs               |
+| opendkim / opendmarc (+ milter)                       | `opendkim`, `opendmarc` (milter mode)            | DKIM signing on submission, DMARC verify on inbound             |
+| Watchdog / Backup (mailcow)                           | `synth-watchdog` + `backup` sidecar              | Rust health checks; `pg_dump` + maildir tar + `rclone` Off-site |
+| Cron jobs / update scripts                            | `synth-control` background tasks (Tokio)         | No host cron                                                    |
 
 **Differentiators vs. mailcow:** single Rust codebase, SPA webmail (no PHP), Postgres instead of MySQL, typed REST/JSON API for all admin actions, gitOps-friendly `.env` + `compose.yaml`, Prometheus-native metrics, no per-service main.cf/master.cf editing by hand (generated from templates).
 
@@ -210,38 +215,38 @@ services:
 
 ### 5.2 Networks
 
-| Network | Purpose |
-|---|---|
-| `mailnet` (bridge, internal) | All services |
-| `edge` | `edge` + `synth-{control,webmail,ui}` only (optional segmented, enforced in Phase 2) |
+| Network                      | Purpose                                                                              |
+| ---------------------------- | ------------------------------------------------------------------------------------ |
+| `mailnet` (bridge, internal) | All services                                                                         |
+| `edge`                       | `edge` + `synth-{control,webmail,ui}` only (optional segmented, enforced in Phase 2) |
 
 ### 5.3 Volumes
 
-| Volume | Mount | Retention |
-|---|---|---|
-| `maildir` | `/var/vmail` in dovecot (shared with backup) | Mail storage; daily tar |
-| `postfix-spool` | `/var/spool/postfix` | Queue; not backed up |
-| `postgres` | `/var/lib/postgresql/data` | Daily `pg_dump` |
-| `redis` | `/data` (persisted via `appendonly yes`) | Short-term; not critical |
-| `rspamd` | `/var/lib/rspamd` | Rules/statistics |
-| `clamav` | `/var/lib/clamav` | Signature DB |
-| `dkim` | `/etc/opendkim/keys` | DKIM selectors per domain |
-| `certs` | `/etc/letsencrypt` | ACME certs; shared `edge`/`postfix`/`dovecot` |
-| `backups` | `/backups` | pg dumps + maildir tars |
+| Volume          | Mount                                        | Retention                                     |
+| --------------- | -------------------------------------------- | --------------------------------------------- |
+| `maildir`       | `/var/vmail` in dovecot (shared with backup) | Mail storage; daily tar                       |
+| `postfix-spool` | `/var/spool/postfix`                         | Queue; not backed up                          |
+| `postgres`      | `/var/lib/postgresql/data`                   | Daily `pg_dump`                               |
+| `redis`         | `/data` (persisted via `appendonly yes`)     | Short-term; not critical                      |
+| `rspamd`        | `/var/lib/rspamd`                            | Rules/statistics                              |
+| `clamav`        | `/var/lib/clamav`                            | Signature DB                                  |
+| `dkim`          | `/etc/opendkim/keys`                         | DKIM selectors per domain                     |
+| `certs`         | `/etc/letsencrypt`                           | ACME certs; shared `edge`/`postfix`/`dovecot` |
+| `backups`       | `/backups`                                   | pg dumps + maildir tars                       |
 
 ### 5.4 Port Map
 
-| Port | Service | Exposure |
-|---|---|---|
-| 25/TCP | postfix (SMTP) | Public |
-| 80/TCP | edge (ACME HTTP-01) | Public |
-| 143/TCP, 993/TCP | dovecot (IMAP, IMAPS) | Public |
-| 110/TCP, 995/TCP | dovecot (POP3, POP3S) | Public (DISABLE_POPT? default on) |
-| 443/TCP | edge (HTTPS) | Public |
-| 465/TCP | postfix (SMTPS) | Public |
-| 587/TCP | postfix (Submission STARTTLS) | Public |
-| 4190/TCP | dovecot (ManageSieve) | Public |
-| 3310, 11334, 5432, 6379, 8000, 3000 | Internal services | Internal only |
+| Port                                | Service                       | Exposure                          |
+| ----------------------------------- | ----------------------------- | --------------------------------- |
+| 25/TCP                              | postfix (SMTP)                | Public                            |
+| 80/TCP                              | edge (ACME HTTP-01)           | Public                            |
+| 143/TCP, 993/TCP                    | dovecot (IMAP, IMAPS)         | Public                            |
+| 110/TCP, 995/TCP                    | dovecot (POP3, POP3S)         | Public (DISABLE_POPT? default on) |
+| 443/TCP                             | edge (HTTPS)                  | Public                            |
+| 465/TCP                             | postfix (SMTPS)               | Public                            |
+| 587/TCP                             | postfix (Submission STARTTLS) | Public                            |
+| 4190/TCP                            | dovecot (ManageSieve)         | Public                            |
+| 3310, 11334, 5432, 6379, 8000, 3000 | Internal services             | Internal only                     |
 
 ---
 
@@ -249,24 +254,24 @@ services:
 
 Each service lists: image/source, config, healthcheck, and SynthMail integration point.
 
-| Service | Base Image (v1) | Role | Healthcheck |
-|---|---|---|---|
-| `edge` | `nginx:alpine` or `traefik:3` | TLS termination (LE), reverse proxy `/api`→control, `/mail`→webmail, `/`→ui | `wget -q --spider http://localhost/health` |
-| `postfix` | `postfix:3.9` (via `mailserver` lineage) | MTA: inbound, outbound, submission, SRS, regexp filters | `postfix status` |
-| `dovecot` | `dovecot:2.3` | IMAPS/POP3S, LMTP, ManageSieve, quota, sieve filtering | `doveadm ping` |
-| `rspamd` | `rspamd/rspamd:stable` | Spam, greylisting, Bayes, DKIM/DMARC check, fuzzy | `HTTP /ping` on 11334 |
-| `clamav` | `clamav/clamav:stable` | Virus scanning via Rspamd `clamav` module | `clamdscan --ping` |
-| `freshclam` | same as clamav | Signature updates every 4h | `freshclam-check` |
-| `opendkim` | `opendkim/opendkim` | DKIM signing (submission) + verification | `opendkim -V` |
-| `opendmarc` | `domainaware/opendmarc` | DMARC record check + aggregate reports | `opendmarc-check` |
-| `synth-control` | Rust binary (multi-stage Dockerfile) | Admin REST API, provisioning, background jobs (DKIM gen, quota enforcement, fail2ban sync) | `GET /healthz` |
-| `synth-webmail` | Rust binary | Webmail backend: IMAP/JMAP proxy, search (FST), sieve editor, vacation, sendmail API | `GET /healthz` |
-| `synth-ui` | Rust (Leptos) compiled to WASM + `rust-embed` static | SPA served by `synth-webmail` or nginx; no separate container in Phase 2 (consolidate) | `GET /healthz` |
-| `synth-watchdog` | Rust binary | Health aggregation, ACME cert renewal glue, status page | `GET /healthz` |
-| `postgres` | `postgres:16-alpine` | Source of truth: users, domains, aliases, quotas, filters | `pg_isready` |
-| `redis` | `redis:7-alpine` | Rspamd + Dovecot + session cache, fail2ban banlist | `redis-cli ping` |
-| `fail2ban` | `fail2ban/fail2ban` | Ban brute-force (SMTP/IMAP/web login) | `fail2ban-client status` |
-| `backup` | `rclone/rclone` + `postgres:16` (dump) | Scheduled dump + off-site sync | File existence check |
+| Service          | Base Image (v1)                                      | Role                                                                                       | Healthcheck                                |
+| ---------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------ |
+| `edge`           | `nginx:alpine` or `traefik:3`                        | TLS termination (LE), reverse proxy `/api`→control, `/mail`→webmail, `/`→ui                | `wget -q --spider http://localhost/health` |
+| `postfix`        | `postfix:3.9` (via `mailserver` lineage)             | MTA: inbound, outbound, submission, SRS, regexp filters                                    | `postfix status`                           |
+| `dovecot`        | `dovecot:2.3`                                        | IMAPS/POP3S, LMTP, ManageSieve, quota, sieve filtering                                     | `doveadm ping`                             |
+| `rspamd`         | `rspamd/rspamd:stable`                               | Spam, greylisting, Bayes, DKIM/DMARC check, fuzzy                                          | `HTTP /ping` on 11334                      |
+| `clamav`         | `clamav/clamav:stable`                               | Virus scanning via Rspamd `clamav` module                                                  | `clamdscan --ping`                         |
+| `freshclam`      | same as clamav                                       | Signature updates every 4h                                                                 | `freshclam-check`                          |
+| `opendkim`       | `opendkim/opendkim`                                  | DKIM signing (submission) + verification                                                   | `opendkim -V`                              |
+| `opendmarc`      | `domainaware/opendmarc`                              | DMARC record check + aggregate reports                                                     | `opendmarc-check`                          |
+| `synth-control`  | Rust binary (multi-stage Dockerfile)                 | Admin REST API, provisioning, background jobs (DKIM gen, quota enforcement, fail2ban sync) | `GET /healthz`                             |
+| `synth-webmail`  | Rust binary                                          | Webmail backend: IMAP/JMAP proxy, search (FST), sieve editor, vacation, sendmail API       | `GET /healthz`                             |
+| `synth-ui`       | Rust (Leptos) compiled to WASM + `rust-embed` static | SPA served by `synth-webmail` or nginx; no separate container in Phase 2 (consolidate)     | `GET /healthz`                             |
+| `synth-watchdog` | Rust binary                                          | Health aggregation, ACME cert renewal glue, status page                                    | `GET /healthz`                             |
+| `postgres`       | `postgres:16-alpine`                                 | Source of truth: users, domains, aliases, quotas, filters                                  | `pg_isready`                               |
+| `redis`          | `redis:7-alpine`                                     | Rspamd + Dovecot + session cache, fail2ban banlist                                         | `redis-cli ping`                           |
+| `fail2ban`       | `fail2ban/fail2ban`                                  | Ban brute-force (SMTP/IMAP/web login)                                                      | `fail2ban-client status`                   |
+| `backup`         | `rclone/rclone` + `postgres:16` (dump)               | Scheduled dump + off-site sync                                                             | File existence check                       |
 
 > **Phase 1 simplification:** mailcow users often run 3 overlapping password/identity stores (MySQL, Dovecot, PostfixAdmin). SynthMail uses **Postgres as the only identity source**; Dovecot/Postfix query Postgres via their `lookup` drivers; `synth-control` is the only writer.
 
@@ -309,13 +314,13 @@ synthmail/
 
 ### 7.1 Core Crates & Their Purposes
 
-| Crate | Public API / Responsibilities |
-|---|---|
-| `synth-common` | `Config` (env/figment), `AppError`, `Auth` (Argon2id, JWT sessions), `Telemetry` (tracing+prometheus) |
-| `synth-control` | REST `/api/v1/*`, user/domain CRUD, DKIM gen, quota, aliases, catch-all, vacation, filters |
+| Crate           | Public API / Responsibilities                                                                                                         |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `synth-common`  | `Config` (env/figment), `AppError`, `Auth` (Argon2id, JWT sessions), `Telemetry` (tracing+prometheus)                                 |
+| `synth-control` | REST `/api/v1/*`, user/domain CRUD, DKIM gen, quota, aliases, catch-all, vacation, filters                                            |
 | `synth-webmail` | `/api/mail/*` (folders, search, send), converts to IMAP/JMAP via `async-imap` / `jmap` crates; full-text index in Postgres `tsvector` |
-| `synth-ui` | Leptos components: Login, Inbox, Compose, Settings, Admin (Users/Domains/Aliases/Queues) |
-| `synth-filter` | Generates `sieve` from DB rules; pushes Rspamd `maps/` |
+| `synth-ui`      | Leptos components: Login, Inbox, Compose, Settings, Admin (Users/Domains/Aliases/Queues)                                              |
+| `synth-filter`  | Generates `sieve` from DB rules; pushes Rspamd `maps/`                                                                                |
 
 ### 7.2 Key Dependencies (Phase 1)
 
@@ -389,10 +394,12 @@ audit_log(
 ```
 
 ### 8.2 Indexing
+
 - `CITEXT` on `users.email`, `aliases.address`, `domains.domain` (case-insensitive).
 - GIN `tsvector` on `mail_search` (webmail full-text, Phase 1.5) fed by Dovecot `fts` or IMAP IDLE sync.
 
 ### 8.3 Identity Integration
+
 - Dovecot `passive` SQL: `SELECT email, password FROM users WHERE email='%u' AND active` (argon2 or `scram-sha-256` if interop needed; dovecot supports `{argon2id}$...`).
 - Postfix `virtual_mailbox_maps` / `relay_domains` from same Postgres via `pgsql` lookup.
 
@@ -402,21 +409,21 @@ audit_log(
 
 All APIs are REST JSON via `synth-control` (admin) and `synth-webmail` (mail). Auth: session JWT (httpOnly cookie) + Bearer `api_tokens` for automation. Versioned under `/api/v1`.
 
-| Endpoint | Method | Description |
-|---|---|---|
-| `/healthz`, `/readyz`, `/metrics` | GET | Liveness, readiness, Prometheus |
-| `/api/v1/auth/login`, `/logout`, `/me` | POST/GET | `Json {email, password}` → `Set-Cookie: synth_session` |
-| `/api/v1/domains`, `/api/v1/domains/{id}` | CRUD | Create domain, toggle catch-all, DKIM |
-| `/api/v1/users`, `/api/v1/users/{id}` | CRUD | Create mailbox, set quota, reset password, disable |
-| `/api/v1/aliases`, `/api/v1/aliases/{id}` | CRUD | CRUD aliases |
-| `/api/v1/quota`, `/api/v1/queues` | GET | Quota overview, mail queue status (postfix `qshape`) |
-| `/api/v1/dkim/{domain}/generate`, `/revoke` | POST | Generate ed25519/rsa2048, write opendkim key, output DNS record |
-| `/api/v1/filters/{user_id}` | GET/PUT | CRUD sieve scripts |
-| `/api/v1/vacation/{user_id}` | GET/PUT | Vacation responder (sieve `vacation` extension) |
-| `/api/v1/mail/folders`, `/api/v1/mail/search`, `/api/v1/mail/messages` | GET/POST | Webmail: list/search/read |
-| `/api/v1/mail/send` | POST | Send via Postfix submission (lettre) or queue injection |
-| `/api/v1/admin/audit`, `/api/v1/admin/bans` | GET | Audit log, fail2ban bans |
-| `/api/v1/config/export`, `/api/v1/config/import` | POST | YAML backup of domains/users/aliases |
+| Endpoint                                                               | Method   | Description                                                     |
+| ---------------------------------------------------------------------- | -------- | --------------------------------------------------------------- |
+| `/healthz`, `/readyz`, `/metrics`                                      | GET      | Liveness, readiness, Prometheus                                 |
+| `/api/v1/auth/login`, `/logout`, `/me`                                 | POST/GET | `Json {email, password}` → `Set-Cookie: synth_session`          |
+| `/api/v1/domains`, `/api/v1/domains/{id}`                              | CRUD     | Create domain, toggle catch-all, DKIM                           |
+| `/api/v1/users`, `/api/v1/users/{id}`                                  | CRUD     | Create mailbox, set quota, reset password, disable              |
+| `/api/v1/aliases`, `/api/v1/aliases/{id}`                              | CRUD     | CRUD aliases                                                    |
+| `/api/v1/quota`, `/api/v1/queues`                                      | GET      | Quota overview, mail queue status (postfix `qshape`)            |
+| `/api/v1/dkim/{domain}/generate`, `/revoke`                            | POST     | Generate ed25519/rsa2048, write opendkim key, output DNS record |
+| `/api/v1/filters/{user_id}`                                            | GET/PUT  | CRUD sieve scripts                                              |
+| `/api/v1/vacation/{user_id}`                                           | GET/PUT  | Vacation responder (sieve `vacation` extension)                 |
+| `/api/v1/mail/folders`, `/api/v1/mail/search`, `/api/v1/mail/messages` | GET/POST | Webmail: list/search/read                                       |
+| `/api/v1/mail/send`                                                    | POST     | Send via Postfix submission (lettre) or queue injection         |
+| `/api/v1/admin/audit`, `/api/v1/admin/bans`                            | GET      | Audit log, fail2ban bans                                        |
+| `/api/v1/config/export`, `/api/v1/config/import`                       | POST     | YAML backup of domains/users/aliases                            |
 
 Errors: RFC 7807 Problem JSON, `application/problem+json`.
 
@@ -425,6 +432,7 @@ Errors: RFC 7807 Problem JSON, `application/problem+json`.
 ## 10. Protocols & DNS Requirements
 
 ### 10.1 Protocols
+
 - **SMTP** (25, 587 STARTTLS, 465 SMTPS) — inbound + outbound + submission.
 - **IMAP** (143, 993) + **POP3** (110, 995) + **ManageSieve** (4190) + **LMTP** (24 internal).
 - **JMAP** (RFC 8620/8621) — preferred webmail transport (Phase 1.5), IMAP fallback.
@@ -449,28 +457,30 @@ Admin UI generates these records per domain (copy-paste zone file).
 
 ## 11. Security, Anti-Abuse & Anti-Spam
 
-| Layer | Implementation |
-|---|---|
-| TLS | LE certificates via `edge`; Dovecot/Postfix STARTTLS with shared `certs` volume; HSTS + OCSP stapling |
-| Passwords | Argon2id (memory-hard) in Postgres; breach-list check (HIBP k-anonymity) on set |
-| 2FA | TOTP for admin UI + webmail (Phase 2, `totp-rs`) |
-| Rate limiting | `tower_governor` on `/api/*` + Postfix `anvil` + Dovecot `login_tricking` |
-| Fail2Ban | Jails: `postfix-sasl`, `dovecot`, `synth-webmail`, `nginx` — maxretry 5, bantime 1h→1d escalating |
-| Anti-Spam | Rspamd: greylisting, Bayes, URIBLZEN/Spamhaus, DKIM/DMARC/SPF checks, fuzzy, attachment blocking |
-| Anti-Virus | ClamAV via Rspamd (infected → quarantine, notify) |
-| Open Relay | Default deny; outbound only for authenticated users on submission port; `mynetworks` strict |
-| SRS / SPF rewriting | Postfix `srs` map for forwarding |
-| Admin hardening | RBAC (superadmin/admin/user), audit log, API token scopes, IP allowlist for `/admin` |
-| Secrets | `.env` with 0600, no secrets in image layers, `docker secret` optional for Postgres/DKIM private keys |
+| Layer               | Implementation                                                                                        |
+| ------------------- | ----------------------------------------------------------------------------------------------------- |
+| TLS                 | LE certificates via `edge`; Dovecot/Postfix STARTTLS with shared `certs` volume; HSTS + OCSP stapling |
+| Passwords           | Argon2id (memory-hard) in Postgres; breach-list check (HIBP k-anonymity) on set                       |
+| 2FA                 | TOTP for admin UI + webmail (Phase 2, `totp-rs`)                                                      |
+| Rate limiting       | `tower_governor` on `/api/*` + Postfix `anvil` + Dovecot `login_tricking`                             |
+| Fail2Ban            | Jails: `postfix-sasl`, `dovecot`, `synth-webmail`, `nginx` — maxretry 5, bantime 1h→1d escalating     |
+| Anti-Spam           | Rspamd: greylisting, Bayes, URIBLZEN/Spamhaus, DKIM/DMARC/SPF checks, fuzzy, attachment blocking      |
+| Anti-Virus          | ClamAV via Rspamd (infected → quarantine, notify)                                                     |
+| Open Relay          | Default deny; outbound only for authenticated users on submission port; `mynetworks` strict           |
+| SRS / SPF rewriting | Postfix `srs` map for forwarding                                                                      |
+| Admin hardening     | RBAC (superadmin/admin/user), audit log, API token scopes, IP allowlist for `/admin`                  |
+| Secrets             | `.env` with 0600, no secrets in image layers, `docker secret` optional for Postgres/DKIM private keys |
 
 ---
 
 ## 12. Webmail & Admin UI
 
 ### 12.1 Admin UI (`synth-ui` + `synth-control`)
+
 Pages: Dashboard (queue, quota, stats), Domains, Users, Aliases, Filters, DKIM/DNS wizard, Queues, Audit, Settings (MTA-STS, DMARC policy sliders), Backups.
 
 ### 12.2 Webmail (`synth-webmail` + same SPA)
+
 - Inbox, Folders, Compose (Drafts, Attachments), Search (Postgres FTS), Settings (Identity, Vacation, Filters/Sieve editor, Password).
 - Transport: Phase 1 IMAP proxy; Phase 1.5 JMAP (Stalwart JMAP or `jmap` crate) for push + contacts/calendar.
 - CardDAV/CalDAV (v1.5): Dovecot only proxies; later `synth-carddav` crate or integrate `radicale` behind same auth.
@@ -518,6 +528,7 @@ RCLONE_REMOTE=
 ```
 
 ### 13.2 Postfix/Dovecot Conf
+
 Not hand-edited. `synth-control` renders `/etc/postfix/main.cf`, `master.cf`, `/etc/dovecot/local.conf.d/*` from templates on startup + on admin change (watch file + `postfix reload`).
 
 ---
@@ -535,6 +546,7 @@ Not hand-edited. `synth-control` renders `/etc/postfix/main.cf`, `master.cf`, `/
 ## 15. Development Workflow & CI/CD
 
 ### 15.1 Local Dev
+
 ```bash
 cp .env.example .env
 docker compose up -d postgres redis
@@ -545,6 +557,7 @@ docker compose up -d
 ```
 
 ### 15.2 CI (GitHub Actions)
+
 - `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`
 - `sqlx prepare` check for migrations
 - Multi-arch image builds (`linux/amd64,arm64`) via `docker buildx` → GHCR
@@ -552,32 +565,35 @@ docker compose up -d
 - Compose smoke test: spin up `docker compose up`, run `swaks` + `imaptest` + `curl /healthz`
 
 ### 15.3 Release
+
 SemVer tags `v0.1.0`; images pinned by digest in `compose.yaml` (`image: ghcr.io/synthmail/synth-control:0.1.0@sha256:...`); migration notes in `docs/releases/`.
 
 ---
 
 ## 16. Testing Strategy
 
-| Level | Tooling |
-|---|---|
-| Unit | `cargo test` for filters, quota, DKIM gen |
-| Integration | `testcontainers` for Postgres/Redis; Axum `Router` tests with `sqlx` fixtures |
-| Mail E2E | `swaks`, `python imapclient`, `greenmail` in CI compose |
-| Spam/AV | `gtube`, EICAR attachments, DMARC alignment tests |
-| Security | `zap` basic scan on `edge`, TLS `testssl.sh` |
-| Load | `k6` on `/api/v1/auth/login` and webmail search; postfix `stress` on small VPS |
+| Level       | Tooling                                                                        |
+| ----------- | ------------------------------------------------------------------------------ |
+| Unit        | `cargo test` for filters, quota, DKIM gen                                      |
+| Integration | `testcontainers` for Postgres/Redis; Axum `Router` tests with `sqlx` fixtures  |
+| Mail E2E    | `swaks`, `python imapclient`, `greenmail` in CI compose                        |
+| Spam/AV     | `gtube`, EICAR attachments, DMARC alignment tests                              |
+| Security    | `zap` basic scan on `edge`, TLS `testssl.sh`                                   |
+| Load        | `k6` on `/api/v1/auth/login` and webmail search; postfix `stress` on small VPS |
 
 ---
 
 ## 17. Backup, Restore & Migration
 
 ### 17.1 Backup
+
 - **DB:** `pg_dump -Fc` daily → `/backups/db-YYYYMMDD.dump` (keep 14d, rotate).
 - **Maildir:** `tar -czf /backups/maildir-YYYYMMDD.tar.gz /var/vmail` (if mail <50GB) or `rsync` incremental.
 - **DKIM/Keys/Certs:** `/etc/opendkim/keys` + `/etc/letsencrypt` tar.
 - **Off-site:** `rclone sync /backups s3:bucket/synthmail/` (profile `backup`).
 
 ### 17.2 Restore
+
 ```bash
 docker compose stop dovecot postfix
 pg_restore -d synthmail /backups/db-YYYYMMDD.dump
@@ -586,6 +602,7 @@ docker compose up -d
 ```
 
 ### 17.3 Migration from mailcow
+
 One-shot CLI `synth-migrate` (Phase 2): read mailcow MariaDB (`mailcow` DB) + `/var/vmail`, import domains/users/aliases, regenerate DKIM if needed, verify via `doveadm auth`.
 
 ---
@@ -593,12 +610,14 @@ One-shot CLI `synth-migrate` (Phase 2): read mailcow MariaDB (`mailcow` DB) + `/
 ## 18. Phased Roadmap & Milestones
 
 ### Phase 0 — Foundation (Weeks 1–2) ✅ **Complete 2026-11-07**
+
 - [x] Workspace split into `crates/*`, `synth-common` config + tracing
 - [x] `synth-control` Axum skeleton (`/healthz`, `/readyz`), Postgres migrations, Redis client
 - [x] `compose.yaml` + `.env.example` + `docker/synth-*/Dockerfile` (multi-stage, `cargo-chef`)
 - [x] CI + Trunk Leptos skeleton
 
 ### Phase 1 — MVP: Hosted Mail Server Parity (Weeks 3–8) — **v0.1 private beta — Implemented scaffold**
+
 - [x] Postgres identity, Postfix+Dovecot generated configs, opendkim/opendmarc, rspamd+clamav
 - [x] Admin API: domains/users/aliases CRUD, quota, DKIM gen, audit log
 - [x] Edge ACME, fail2ban, backup sidecar
@@ -607,6 +626,7 @@ One-shot CLI `synth-migrate` (Phase 2): read mailcow MariaDB (`mailcow` DB) + `/
 - **Exit criteria:** fresh VPS→`docker compose up`→send/receive via Thunderbird + webmail, spam score <1.0 ✅ (tooling ready; live-domain scoring pending user domain)
 
 ### Phase 2 — Polish & Production (Weeks 9–16) — **v0.5 ✅ Complete 2026-11-08**
+
 - [x] JMAP backend (RFC 8620/8621 session + Mailbox/Email query/get/set over IMAP), CardDAV/CalDAV (/api/v1/carddav|caldav + WebDAV discovery + Radicale profile), full-text search (tsvector + `fts_indexer` + ranked search), vacation + sieve editor (API + UI)
 - [x] 2FA (TOTP RFC 6238, `synth-common::totp` with HOTP/TOTP + otpauth URL), API tokens CRUD with scopes/expiry (Argon2 hash + prefix lookup), HIBP k-anonymity (`synth-common::hibp`), rate limiting (`RateLimiter` + `login_attempts` + fail2ban sync), monitoring (Prometheus scraping + Grafana dashboard, profile `monitoring`)
 - [x] `synth-migrate` import (CSV + mailcow/Maildir, dry-run/verify/count-maildir, DKIM regen path), `synth-watchdog` alerts (ntfy/webhook on >2m down, status page, Prometheus metrics)
@@ -614,40 +634,42 @@ One-shot CLI `synth-migrate` (Phase 2): read mailcow MariaDB (`mailcow` DB) + `/
 - **Exit criteria:** public beta, docs/ runbooks complete
 
 ### Phase 3 — Pure-Rust Evaluation (Months 5–9) — **v1.0 candidate ✅ Complete 2026-11-08**
+
 - [x] Spike: `synth-smtp` ESMTP shim (Redis queue + `lettre` forward to Postfix) + Stalwart drop-in (`docker/compose.stalwart.yaml`, `stalwartlabs/stalwart:v1`) while keeping `synth-control` as admin layer
 - [x] Decision ADR: `docs/adr/0003-pure-rust-evaluation.md` — keep Hybrid default for v1.0 GA; Stalwart as v1.0 backend candidate behind profile flag (deliverability + interop weighted higher than code purity)
 - [x] Performance: `synth-bench` — TOTP p95 65µs, HIBP p95 22µs, queue-serialize ~69k msg/s vs 2.8 msg/s target, p95 API <100ms ✅ (10k/h on VPS remains smoke-test follow-up)
 
 ### Phase 4 — Hardening & Ecosystem (Months 10–12) — **v1.0 ✅ Complete 2026-11-08**
+
 - [x] Mobile web & PWA (manifest + service worker in `crates/synth-ui/`), push notifications (`/api/v1/push/subscribe` + `push_subscriptions` table), multiple domains, per-domain DMARC aggregate report viewer API (`GET/POST /api/v1/dmarc/reports`, `dmarc_reports` table)
 - [x] One-click upgrades (`docs/runbooks/upgrades.md`), reproducible multi-arch builds in CI, signed releases (`scripts/sign-release.sh`, `docs/releases/v1.0.0.md`)
 - [x] HA option: Postgres replication + `postfix` multi-node (`docker/compose.ha.yaml`, `docs/runbooks/ha.md` — stretch goal implemented as opt-in overlay) — Stalwart cluster alternative (see ADR 0003)
 
 ### Milestone Timeline
 
-| Milestone | Date | Deliverable |
-|---|---|---|
+| Milestone     | Date       | Deliverable                                        |
+| ------------- | ---------- | -------------------------------------------------- |
 | M0 Foundation | 2026-11-20 | Workspace + compose up with all containers healthy |
-| M1 MVP | 2026-12-19 | Single-domain mail + webmail + admin |
-| M2 Production | 2027-02-15 | Beta, migration tool, 2FA, monitoring |
-| M3 v1.0 | 2027-05-31 | GA with docs + upgrade path |
+| M1 MVP        | 2026-12-19 | Single-domain mail + webmail + admin               |
+| M2 Production | 2027-02-15 | Beta, migration tool, 2FA, monitoring              |
+| M3 v1.0       | 2027-05-31 | GA with docs + upgrade path                        |
 
 ---
 
 ## 19. Risks, Trade-offs & Open Questions
 
-| # | Risk / Question | Mitigation / Decision Needed |
-|---|---|---|
-| R1 | Pure Rust MTA immaturity (deliverability, JMAP interop) | Hybrid v1; Stalwart evaluation in Phase 3 |
-| R2 | Postfix/Dovecot config drift from DB | Single source of truth in Postgres; templated configs; reload on change; CI diff test |
-| R3 | IP reputation on fresh VPS (GMail/Outlook throttling) | PTR/SPF/DKIM/DMARC + warm-up email; docs on gradual sending |
-| R4 | Argon2id vs. Dovecot password interop | Dovecot's `{argon2id}` support verified; fallback SCRAM-SHA-256 if needed (ADR) |
-| R5 | Webmail search perf on large Maildir | Phase 1.5 Postgres FTS + Dovecot `fts-solr`/`fts-xapian` evaluated |
-| R6 | Container resource usage (Rspamd + ClamAV on 2GB VPS) | ClamAV grouped in Rspamd `clamav` (single process), `memlimit` in compose; docs minimum 2GB RAM, 4GB recommended |
-| R7 | DKIM key revocation flow | UI-driven rotation + old selector grace period |
-| O1 | Edge: nginx vs. Traefik? | **Decide:** nginx for static simplicity in Phase 1 |
-| O2 | Frontend: Leptos vs. Yew vs. Dioxus? | **Decide:** Leptos (CSS + SSR friendly) |
-| O3 | Mail storage: Maildir vs. S3? | **Decide:** Maildir for v1 (backups simpler) |
+| #   | Risk / Question                                         | Mitigation / Decision Needed                                                                                     |
+| --- | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| R1  | Pure Rust MTA immaturity (deliverability, JMAP interop) | Hybrid v1; Stalwart evaluation in Phase 3                                                                        |
+| R2  | Postfix/Dovecot config drift from DB                    | Single source of truth in Postgres; templated configs; reload on change; CI diff test                            |
+| R3  | IP reputation on fresh VPS (GMail/Outlook throttling)   | PTR/SPF/DKIM/DMARC + warm-up email; docs on gradual sending                                                      |
+| R4  | Argon2id vs. Dovecot password interop                   | Dovecot's `{argon2id}` support verified; fallback SCRAM-SHA-256 if needed (ADR)                                  |
+| R5  | Webmail search perf on large Maildir                    | Phase 1.5 Postgres FTS + Dovecot `fts-solr`/`fts-xapian` evaluated                                               |
+| R6  | Container resource usage (Rspamd + ClamAV on 2GB VPS)   | ClamAV grouped in Rspamd `clamav` (single process), `memlimit` in compose; docs minimum 2GB RAM, 4GB recommended |
+| R7  | DKIM key revocation flow                                | UI-driven rotation + old selector grace period                                                                   |
+| O1  | Edge: nginx vs. Traefik?                                | **Decide:** nginx for static simplicity in Phase 1                                                               |
+| O2  | Frontend: Leptos vs. Yew vs. Dioxus?                    | **Decide:** Leptos (CSS + SSR friendly)                                                                          |
+| O3  | Mail storage: Maildir vs. S3?                           | **Decide:** Maildir for v1 (backups simpler)                                                                     |
 
 ---
 
@@ -674,4 +696,4 @@ docker compose up -d
 
 ---
 
-*This plan is a living document — update this file alongside the code. Link ADRs from `docs/adr/` for each architectural decision.*
+_This plan is a living document — update this file alongside the code. Link ADRs from `docs/adr/` for each architectural decision._

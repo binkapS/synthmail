@@ -1,0 +1,144 @@
+# SynthMail — Postgres HA overlay (Patroni). NOT auto-failover.
+#
+# Bring up (single-node patroni: etcd + primary only):
+#   docker compose -f compose.yaml -f docker/compose.ha.yaml --profile ha up -d
+# Add the streaming replica (separate profile, still manual promotion):
+#   docker compose -f compose.yaml -f docker/compose.ha.yaml --profile ha --profile ha-replica up -d
+#
+# This overlay redefines the base `postgres` service in place as the Patroni
+# primary so existing DATABASE_URL (`postgres:5432`) keeps working. The base
+# `postgres` image is never run alongside it — loading this overlay replaces
+# it. Base `compose.yaml` needs no edits.
+#
+# Honest scope: this is primary + replica with MANUAL failover only (see
+# docs/runbooks/ha.md). No floating VIP/HAProxy, no automatic promotion, and
+# a single-node etcd DCS — do not mistake this for a production HA cluster.
+# Patroni is configured purely via PATRONI_* env vars (the upstream ongres
+# image generates its config from env; no config file is mounted).
+services:
+  etcd:
+    # Pinned by version tag verified via Docker Hub REST API (2026-11-07);
+    # bitnamilegacy is the frozen mirror of bitnami/etcd.
+    image: bitnamilegacy/etcd:3.6.4
+    profiles: ["ha"]
+    environment:
+      - BITNAMI_DEBUG=false
+      # Single-node etcd: no auth, internal network only.
+      - ALLOW_NONE_AUTHENTICATION=yes
+      - ETCD_ADVERTISE_CLIENT_URLS=http://etcd:2379
+      - ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379
+      - ETCD_LISTEN_PEER_URLS=http://0.0.0.0:2380
+      - ETCD_INITIAL_CLUSTER_STATE=new
+      - ETCD_INITIAL_CLUSTER_TOKEN=synthmail
+      - ETCD_INITIAL_CLUSTER=etcd=http://etcd:2380
+      - ETCD_DATA_DIR=/etcd-data
+    volumes:
+      - etcd:/etcd-data
+    networks: [mailnet]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:2379/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+    restart: unless-stopped
+
+  postgres:
+    # Becomes the Patroni primary when this overlay is loaded.
+    # Pinned by version tag verified via Docker Hub REST API (2026-11-07):
+    # ongres/patroni is the upstream Patroni OCI image. The legacy names do
+    # not work: `zalando/patroni` returns "object not found" on Hub and
+    # `patroni/patroni` is not a Hub repo.
+    image: ongres/patroni:v4.0.4-pg16.6-build-6.39
+    # No `profiles:` here — the base `postgres` is always-on and every other
+    # base service depends on it, so profile-gating it breaks plain
+    # `docker compose -f compose.yaml -f docker/compose.ha.yaml config`.
+    # HA-ness comes from loading this overlay at all (`-f`), and the extra
+    # services (etcd, replica) stay profile-gated below.
+    entrypoint: []
+    command: ["patroni"]
+    environment:
+      - PATRONI_NAME=postgres-primary
+      - PATRONI_SCOPE=synthmail
+      - PATRONI_RESTAPI_PORT=8008
+      - PATRONI_POSTGRESQL_PORT=5432
+      - PATRONI_POSTGRESQL_DATA_DIR=/var/lib/postgresql/data
+      - PATRONI_POSTGRESQL_PGHOST=postgres
+      - PATRONI_ETCD_HOSTS=etcd:2379
+      - PATRONI_SUPERUSER_USERNAME=synth
+      - PATRONI_SUPERUSER_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      - PATRONI_POSTGRESQL_USERNAME=synth
+      - PATRONI_POSTGRESQL_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      - PATRONI_REPLICATION_USERNAME=replicator
+      - PATRONI_REPLICATION_PASSWORD=${PATRONI_REPLICATION_PASSWORD:-}
+      - PATRONI_POSTGRESQL_AUTH_HBA_HOST=""
+      - PATRONI_POSTGRESQL_CREATE_REPLICA_METHOD=pg_basebackup
+      - PATRONI_POSTGRESQL_INITDB_ENCODING=UTF8
+      - PATRONI_POSTGRESQL_INITDB_LOCALE=C
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    networks: [mailnet]
+    ports:
+      # Loopback-only like the rest of the base stack.
+      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:8008:8008"
+    # Base `postgres` is replaced by this service once the overlay loads
+    # (same name), so no `depends_on` edit to the base file is needed.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python3 -c "import urllib.request,sys;
+          d=urllib.request.urlopen('http://localhost:8008/health').read().decode();
+          sys.exit(0 if 'leader' in d else 1)"
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+    restart: unless-stopped
+
+  postgres-replica:
+    # Streaming replica. Profile `ha-replica` keeps it out of single-node
+    # bring-up. Promotion is MANUAL via patronictl — see runbook.
+    image: ongres/patroni:v4.0.4-pg16.6-build-6.39
+    profiles: ["ha", "ha-replica"]
+    entrypoint: []
+    command: ["patroni"]
+    environment:
+      - PATRONI_NAME=postgres-replica
+      - PATRONI_SCOPE=synthmail
+      - PATRONI_RESTAPI_PORT=8008
+      - PATRONI_POSTGRESQL_PORT=5432
+      - PATRONI_POSTGRESQL_DATA_DIR=/var/lib/postgresql/data-replica
+      - PATRONI_POSTGRESQL_PGHOST=postgres-replica
+      - PATRONI_ETCD_HOSTS=etcd:2379
+      - PATRONI_SUPERUSER_USERNAME=synth
+      - PATRONI_SUPERUSER_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      - PATRONI_POSTGRESQL_USERNAME=synth
+      - PATRONI_POSTGRESQL_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      - PATRONI_REPLICATION_USERNAME=replicator
+      - PATRONI_REPLICATION_PASSWORD=${PATRONI_REPLICATION_PASSWORD:-}
+      - PATRONI_POSTGRESQL_AUTH_HBA_HOST=""
+      - PATRONI_POSTGRESQL_CREATE_REPLICA_METHOD=pg_basebackup
+      - PATRONI_POSTGRESQL_INITDB_ENCODING=UTF8
+      - PATRONI_POSTGRESQL_INITDB_LOCALE=C
+    volumes:
+      - postgres-replica:/var/lib/postgresql/data-replica
+    networks: [mailnet]
+    # No host ports — reachable only inside mailnet.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python3 -c "import urllib.request,sys;
+          d=urllib.request.urlopen('http://localhost:8008/health').read().decode();
+          sys.exit(0 if 'replica' in d else 1)"
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+    restart: unless-stopped
+    depends_on:
+      etcd: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+
+volumes:
+  etcd:
+  postgres-replica:

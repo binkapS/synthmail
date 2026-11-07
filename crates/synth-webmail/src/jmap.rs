@@ -111,7 +111,11 @@ pub fn handle_method(call: &MethodCall) -> serde_json::Value {
             serde_json::json!({"accountId": "urn:ietf:params:jmap:account", "list": [], "notFound": [], "notModified": false})
         }
         "Email/set" => {
-            serde_json::json!({"accountId": "urn:ietf:params:jmap:account", "created": {}, "updated": {}, "destroyed": []})
+            // The real implementation lives in routes::email_jmap where the
+            // authenticated user's Maildir root is known; reaching this generic
+            // fallback means no Maildir binding, so answer honestly instead of
+            // with fake success.
+            serde_json::json!({"accountId": "urn:ietf:params:jmap:account", "type": "urn:ietf:params:jmap:core", "error": "unsupportedMethod", "description": "Email/set requires the authenticated Maildir binding; use the /jmap dispatch endpoint"})
         }
         _ => {
             serde_json::json!({"accountId": "urn:ietf:params:jmap:account", "error": "unsupportedMethod"})
@@ -136,5 +140,16 @@ mod tests {
             tag: "a".into(),
         };
         assert!(handle_method(&call)["ids"].as_array().unwrap().len() == 5);
+    }
+    #[test]
+    fn email_set_fallback_is_not_fake_success() {
+        let call = MethodCall {
+            name: "Email/set".into(),
+            args: serde_json::json!({"accountId": "x"}),
+            tag: "a".into(),
+        };
+        let v = handle_method(&call);
+        assert_eq!(v["error"], "unsupportedMethod");
+        assert!(v.get("created").is_none());
     }
 }
