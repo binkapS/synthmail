@@ -17,8 +17,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # exist in this image. Per dbconfig-no-thanks docs, the milter still
 # works; only automatic DB-backed aggregate-report storage is off.
 COPY opendmarc.conf /etc/opendmarc.conf
-RUN mkdir -p /run/opendmarc \
-    && chown opendmarc:opendmarc /run/opendmarc
+RUN mkdir -p /run/opendmarc /etc/opendmarc \
+    && printf '127.0.0.1\n::1\n172.16.0.0/12\n10.0.0.0/8\n192.168.0.0/16\n' \
+        > /etc/opendmarc/TrustedHosts \
+    && chown -R opendmarc:opendmarc /run/opendmarc /etc/opendmarc
 EXPOSE 8893
 ENTRYPOINT ["/usr/sbin/opendmarc", "-f", "-c", "/etc/opendmarc.conf"]
-HEALTHCHECK CMD opendmarc-check || exit 1
+HEALTHCHECK CMD bash -c 'exec 3<>/dev/tcp/127.0.0.1/8893' 2>/dev/null || exit 1

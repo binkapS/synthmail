@@ -13,7 +13,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY opendkim.conf /etc/opendkim.conf
 RUN mkdir -p /etc/opendkim/keys /run/opendkim \
     && touch /etc/opendkim/KeyTable /etc/opendkim/SigningTable \
+    && printf '127.0.0.1\n::1\n172.16.0.0/12\n10.0.0.0/8\n192.168.0.0/16\n' \
+        > /etc/opendkim/TrustedHosts \
     && chown -R opendkim:opendkim /etc/opendkim /run/opendkim
 EXPOSE 8892
 ENTRYPOINT ["/usr/sbin/opendkim", "-f", "-c", "/etc/opendkim.conf"]
-HEALTHCHECK CMD opendkim -V || exit 1
+HEALTHCHECK CMD bash -c 'exec 3<>/dev/tcp/127.0.0.1/8892' 2>/dev/null || exit 1
