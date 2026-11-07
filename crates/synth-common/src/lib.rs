@@ -6,6 +6,7 @@ pub mod hibp;
 pub mod metrics;
 pub mod policy;
 pub mod rate_limit;
+pub mod secrets;
 pub mod telemetry;
 pub mod totp;
 

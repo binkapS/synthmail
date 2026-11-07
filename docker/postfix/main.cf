@@ -3,7 +3,10 @@ myhostname = mail.example.com
 mydomain = example.com
 myorigin = $mydomain
 relayhost = 
-mynetworks = 127.0.0.0/8 [::ffff:127.0.0.0]/104 [::1]/128 172.16.0.0/12
+# Narrow (audit N-06): loopback + the Docker mailnet bridge only.
+# The previous 172.16.0.0/12 trusted every private subnet, so any
+# compromised container could relay without SASL.
+mynetworks = 127.0.0.0/8 [::ffff:127.0.0.0]/104 [::1]/128 172.17.0.0/16
 inet_interfaces = all
 inet_protocols = ipv4
 mydestination = $myhostname, localhost.$mydomain, localhost, $mydomain
@@ -16,8 +19,11 @@ virtual_alias_domains =
 smtpd_sasl_auth_enable = yes
 smtpd_sasl_type = dovecot
 smtpd_sasl_path = private/auth
+# TLS is mandatory for SASL auth (audit C-06): credentials are only
+# accepted over an encrypted connection. Port 25 inbound remains
+# "may" so unauthenticated MTA-to-MTA mail still works.
 smtpd_tls_security_level = may
-smtpd_tls_auth_only = no
+smtpd_tls_auth_only = yes
 smtp_tls_security_level = may
 smtp_tls_note_starttls_offer = yes
 smtpd_tls_cert_file = /etc/letsencrypt/live/mail.example.com/fullchain.pem
@@ -31,7 +37,9 @@ virtual_transport = lmtp:inet:dovecot:24
 # DKIM milter (opendkim :8892)
 smtpd_milters = inet:opendkim:8892, inet:opendmarc:8893
 non_smtpd_milters = $smtpd_milters
-milter_default_action = accept
+# Fail closed if the milters are down (audit N-06): previously "accept"
+# silently shipped mail unsigned/unchecked when opendkim/opendmarc was down.
+milter_default_action = reject
 # SRS placeholder; enable in Phase 2 via synth-filter
 # queue_directory = /var/spool/postfix
 # home_mailbox = Maildir/

@@ -169,3 +169,112 @@ Source of findings: [`AUDIT.md`](AUDIT.md) (2026-11-07).
 - YAML sanity for `.github/workflows/ci.yml` via `python3 -c 'import yaml'`
   — or reported as unavailable.
 - `bash -n scripts/sign-release.sh`
+
+---
+
+## Addendum — re-audit hardening pass (2026-11-07, HEAD `3aefa77` → this commit)
+
+Source of findings: [`AUDIT-RECHECK.md`](AUDIT-RECHECK.md) (re-audit of `d8edf83`).
+This pass implements §4 of that report (plus §3's N-01…N-13) and rewrites
+[`README.md`](README.md). Validation: `cargo check/test/clippy -D warnings`,
+`cargo fmt --check`, `docker compose (plus --profile stalwart) config -q`
+all pass; 72 tests pass (up from 67).
+
+### P0 — TLS, DKIM, TOTP encryption (C-06, H-07, M-15)
+- **C-06 TLS fail-closed + ACME profile.** `docker/dovecot/dovecot.conf`
+  is now `ssl = yes` + `ssl = required` with explicit `ssl_cert`/`ssl_key`;
+  the Dovecot entrypoint exits 1 when the certificate is missing.
+  Postfix `smtpd_tls_auth_only = yes` (+ `smtps` `smtpd_tls_auth_only=yes`
+  and SASL-or-reject). Dovecot mail ports are bound to loopback.
+  New `acme` compose profile (`certbot/certbot:v4.0.0`, `--webroot`
+  via `synth-watchdog`) issues staging certs; README documents the
+  one-step `--staging` removal for production.
+- **H-07 DKIM encryption + OpenDKIM sync.** New `synth-common::secrets`
+  (AES-256-GCM). `dkim_generate` now encrypts the PEM at rest
+  (`private_key_enc = enc:<b64>`) and writes `KeyTable`, `SigningTable`,
+  and `<selector>.pem` (`0600`) into the shared `dkim` volume the
+  `opendkim` service reads (`KeyTable` points at `/etc/opendkim/keys/<selector>.pem`).
+  `MinimumKeyBits` 1024 → 2048.
+- **M-15 / H-07 encryption key.** `Config` gains `ENCRYPTION_KEY`
+  (64 hex, fail-fast, no default), forwarded to `synth-control` and
+  `synth-webmail`; `config.rs` validates it. Plaintext DB values remain
+  readable during rollout (decrypt passthrough) and are flagged legacy.
+- **N-08 pending-secret 2FA enrollment.** Migration
+  `20261107000004_recheck.sql` adds `user_totp.secret_pending` +
+  `pending_expires_at` (10 min). `totp_enroll` stores the new secret
+  there (encrypted) instead of clobbering the active one;
+  `totp_verify` activates pending→active and clears pending; `totp_disable`
+  clears pending. Abandoning enrollment no longer disables 2FA.
+
+### P1 — seeds, limits, FTS, network, UI, backup, HA
+- **N-02/R-01 seed password policy.** `seed_admin` now runs
+  `validate_password_strength(…, 12)` on a user-supplied seed password
+  and fails startup on violation. `INITIAL_ADMIN_PASSWORD` compose
+  default removed (empty ⇒ random). Generated passwords are written to
+  `/run/secrets/initial-admin-password` (`0600`) and announced on stderr
+  instead of being logged (N-09).
+- **N-01 distributed rate limiting.** `synth-common::rate_limit` is now
+  Redis-backed (fixed window, shared across replicas) with a bounded
+  in-memory fallback that evicts empty keys. Both `AppState`s construct
+  it with the Redis client; all `check()` call sites are now `.await`.
+- **N-04 FTS scheduling.** `synth-webmail::main` spawns a 60 s
+  `reindex_batch` loop; the library `fts_indexer::search` takes
+  `user_id` and is tenant-scoped (the HTTP route already was).
+- **N-06 Postfix hardening.** `mynetworks` narrowed from
+  `172.16.0.0/12` to loopback + `172.17.0.0/16`;
+  `milter_default_action = reject` (was `accept`).
+- **N-05/N-10 shim + Stalwart.** `synth-smtp` defaults to loopback
+  (`--host 127.0.0.1`), caps 100 concurrent connections with a semaphore
+  and a 60 s idle timeout. The Stalwart overlay is documented as
+  standalone and binds all mail ports to loopback.
+- **H-11 admin UI.** New `docker/synth-ui/Dockerfile` (Trunk WASM build →
+  `nginx` static); `synth-ui` service (`127.0.0.1:3002`) behind edge
+  `/admin/`; CI gained a `ui-build` job.
+- **H-09 backup.** New `docker/backup/{Dockerfile,run-backup.sh}`
+  (Postgres 15 client + `tar` + `rclone`): `pg_dump -Fc`, Maildir tar,
+  `sha256sum` checksums, retention prune, optional `rclone sync`;
+  `compose.yaml` `backup` service rewritten to use it.
+- **M-17 HA overlay removed.** `docker/compose.ha.yaml` deleted (never a
+  working replica). **M-16 pins:** `rspamd:1.94.2`; `clamav` left on
+  `stable-debian` (no numeric tag upstream) with a digest-pin note.
+  `.dockerignore` already existed and is now honored by the UI/backup builds.
+- **M-23 light.** Migration adds a `users`-domain-managed trigger and drops
+  the deprecated `quota_overrides` table.
+- **R-04 forced password change.** `webmail::authenticate_user` now
+  rejects `force_password_change` with a validation error so the webmail
+  API is unusable until the password is rotated.
+- **N-03 DAV auth.** `dav_discovery` now requires `authenticate_user`.
+
+### P2 — hygiene
+- **N-07 CI config tests.** New `config-test` job (`postfix check`,
+  `rspamadm configtest`, `doveconf -n`) plus an `env:` block so the
+  smoke `docker compose config` works with required secrets.
+- **N-11 release lockfile.** `sign-release.sh` now writes real digests
+  to `docs/releases/v${VERSION}.digests.txt`.
+- **N-12 safe substitution.** Postfix/Dovecot entrypoints replaced
+  with `entrypoint.sh` awk helpers (passwords with `&`, `|`, `/` OK).
+- **N-13/Dovecot.** Entry point fails before `ssl` config creep — the
+  config now hardcodes cert paths (no more sed-flip from `ssl = no`).
+- **DMARC XXE.** `create_dmarc_report` rejects `<!DOCTYPE`, `<!ENTITY`,
+  and `<!-- entity -->` shapes.
+- **M-20/M-21 metrics.** `metrics::set_queue_depth` gauge wired into
+  `queue_status`; the duplicate `postfix-queue` Prometheus job removed.
+  Grafana datasource + overview dashboard were already present.
+
+### Files changed (this pass)
+- `Cargo.toml`, `Cargo.lock`
+- `crates/synth-common/{Cargo.toml,src/secrets.rs,src/lib.rs,src/config.rs,src/rate_limit.rs,src/metrics.rs}`
+- `crates/synth-control/{src/routes.rs,src/app.rs,src/db.rs,migrations/20261107000004_recheck.sql}`
+- `crates/synth-dkim/src/lib.rs`
+- `crates/synth-webmail/{src/main.rs,src/app.rs,src/routes.rs,src/carddav.rs,src/fts_indexer.rs}`
+- `crates/synth-smtp/src/main.rs`
+- `compose.yaml`, `.env.example`, `.github/workflows/ci.yml`
+- `docker/{postfix,dovecot}/entrypoint.sh` (new), `docker/postfix/Dockerfile`,
+  `docker/dovecot/Dockerfile`, `docker/postfix/main.cf`, `docker/postfix/master.cf`,
+  `docker/dovecot/dovecot.conf`, `docker/opendkim/opendkim.conf`,
+  `docker/edge/nginx.conf`, `docker/synth-ui/Dockerfile` (new),
+  `docker/backup/{Dockerfile,run-backup.sh}` (new),
+  `docker/compose.stalwart.yaml`, `docker/monitoring/prometheus.yml`
+- `docker/compose.ha.yaml` (deleted)
+- `scripts/sign-release.sh`
+- `README.md`

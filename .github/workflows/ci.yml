@@ -52,8 +52,46 @@ jobs:
       - uses: docker/setup-buildx-action@v4
       - run: docker buildx build --platform ${{ matrix.target }} -f docker/synth-control/Dockerfile --push=false .
       - run: docker buildx build --platform ${{ matrix.target }} -f docker/synth-webmail/Dockerfile --push=false .
+      - run: docker buildx build --platform ${{ matrix.target }} -f docker/synth-ui/Dockerfile --push=false .
+  config-test:
+    # Audit N-07: validate mail configs the way the daemons would.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: postfix check
+        run: |
+          docker run --rm -v "$PWD/docker/postfix/main.cf:/etc/postfix/main.cf:ro" \
+            -v "$PWD/docker/postfix/master.cf:/etc/postfix/master.cf:ro" \
+            debian:bookworm-slim sh -c \
+            'apt-get update >/dev/null && apt-get install -y --no-install-recommends postfix postfix-pgsql >/dev/null && postfix check /etc/postfix/main.cf /etc/postfix/master.cf'
+      - name: rspamd configtest
+        run: |
+          docker run --rm -v "$PWD/docker/rspamd/local.d:/etc/rspamd/local.d:ro" \
+            rspamd/rspamd:1.94.2 rspamadm configtest
+      - name: doveconf sanity
+        run: |
+          docker run --rm -v "$PWD/docker/dovecot/dovecot.conf:/etc/dovecot/dovecot.conf:ro" \
+            debian:bookworm-slim sh -c \
+            'apt-get update >/dev/null && apt-get install -y --no-install-recommends dovecot-core >/dev/null && doveconf -n | head -5'
+  ui-build:
+    # Audit H-11: WASM build of the Leptos SPA.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: wasm32-unknown-unknown }
+      - name: wasm check
+        run: cargo check -p synth-ui --target wasm32-unknown-unknown
   smoke:
     runs-on: ubuntu-latest
+    env:
+      SESSION_SECRET: ci-only-random-secret-0123456789abcdef0123456789
+      ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+      INITIAL_ADMIN_PASSWORD: "CI-seed-password-42!x"
+      POSTGRES_PASSWORD: ci-postgres-password
+      REDIS_PASSWORD: ci-redis-password
+      REDIS_URL: "redis://:ci-redis-password@redis:6379"
+      GRAFANA_ADMIN_PASSWORD: ci-grafana-password
     steps:
       - uses: actions/checkout@v4
       - run: docker compose config

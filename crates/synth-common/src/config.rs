@@ -39,6 +39,8 @@ pub struct Config {
     pub totp_enforced_for_admin: bool,
     #[serde(default = "default_min_password_len")]
     pub min_password_len: usize,
+    #[serde(default)]
+    pub encryption_key: String,
 }
 
 fn default_host() -> String {
@@ -93,6 +95,7 @@ impl std::default::Default for Config {
             hibp_enabled: false,
             totp_enforced_for_admin: true,
             min_password_len: default_min_password_len(),
+            encryption_key: String::new(),
         }
     }
 }
@@ -166,6 +169,9 @@ impl Config {
         {
             cfg.min_password_len = p;
         }
+        if let Ok(v) = std::env::var("ENCRYPTION_KEY") {
+            cfg.encryption_key = v;
+        }
         cfg
     }
 
@@ -190,6 +196,14 @@ impl Config {
         }
         if self.database_url.is_empty() {
             return Err("DATABASE_URL is required".to_string());
+        }
+        if self.encryption_key.is_empty() {
+            return Err("ENCRYPTION_KEY is required (no default key is accepted)".to_string());
+        }
+        if self.encryption_key.len() != 64
+            || !self.encryption_key.chars().all(|c| c.is_ascii_hexdigit())
+        {
+            return Err("ENCRYPTION_KEY must be 64 hex characters (32 bytes)".to_string());
         }
         Ok(())
     }
@@ -216,6 +230,7 @@ mod tests {
     fn accepts_valid_secret() {
         let cfg = Config {
             session_secret: "a-strong-random-secret-of-32-bytes-minimum".to_string(),
+            encryption_key: "00".repeat(32),
             ..Config::default()
         };
         assert!(cfg.validate().is_ok());

@@ -340,7 +340,7 @@ async fn auth_login(
         ip.as_deref().unwrap_or("unknown"),
         req.email.to_lowercase()
     );
-    if !s.limiter.check(&rate_key) {
+    if !s.limiter.check(&rate_key).await {
         return Err(ErrorResponse(AppError::TooManyRequests));
     }
     // DB lockout: many recent failures for this account.
@@ -1343,6 +1343,7 @@ async fn queue_status(
     .ok()
     .flatten()
     .unwrap_or(0);
+    synth_common::metrics::set_queue_depth(if deferred > 0 { deferred as u64 } else { 0 });
     Ok(Json(
         serde_json::json!({"queue":{"deferred":deferred,"active":0,"hold":0},"activity_1h": count,
             "postfix_queue_size": deferred,
@@ -1383,11 +1384,14 @@ async fn dkim_generate(
         .map_err(|e| ErrorResponse(AppError::Internal(e.to_string())))?;
 
     let id = Uuid::new_v4();
-    // NOTE (H-07 residual): private keys are still stored in
-    // dkim_keys.private_key_enc. Application-layer encryption with a managed
-    // KMS/age key is required before production — see AUDIT.md H-07.
+    // H-07/M-15: encrypt the private key at rest (AES-256-GCM, ENCRYPTION_KEY)
+    // and sync the plaintext into the shared opendkim volume so signing works
+    // immediately. The DB copy is ciphertext; the volume copy is 0600.
+    let private_key_enc =
+        synth_common::secrets::encrypt(&s.config.encryption_key, &pair.private_key_pem)
+            .map_err(|e| ErrorResponse(AppError::Internal(e.to_string())))?;
     sqlx::query("INSERT INTO dkim_keys (id, domain_id, selector, public_key, private_key_enc, key_type) VALUES ($1,$2,$3,$4,$5,$6)")
-        .bind(id).bind(domain_id).bind(&selector).bind(&pair.public_key_b64).bind(&pair.private_key_pem).bind(&pair.key_type)
+        .bind(id).bind(domain_id).bind(&selector).bind(&pair.public_key_b64).bind(&private_key_enc).bind(&pair.key_type)
         .execute(&s.pool).await.map_err(|e| ErrorResponse(AppError::Database(e)))?;
     sqlx::query("UPDATE domains SET dkim_selector=$2, dkim_enabled=true WHERE id=$1")
         .bind(domain_id)
@@ -1395,6 +1399,32 @@ async fn dkim_generate(
         .execute(&s.pool)
         .await
         .ok();
+    // Sync to the shared OpenDKIM volume (/var/dkim-sync == /etc/opendkim/keys
+    // in the opendkim container). Best-effort: signing failure must not break
+    // the API, but log loudly so an operator notices unsigned mail.
+    let sync_dir = "/var/dkim-sync";
+    if !pair.private_key_pem.is_empty() {
+        let key_path = format!("{sync_dir}/{selector}.pem");
+        if std::fs::write(&key_path, pair.private_key_pem.as_bytes()).is_ok() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o600));
+            }
+            let keytable = format!(
+                "{}.{} {}:{}:/etc/opendkim/keys/{}.pem\n",
+                domain_row.domain, selector, domain_row.domain, selector, selector
+            );
+            let signingtable = format!(
+                "@{} {}._domainkey.{}\n",
+                domain_row.domain, selector, domain_row.domain
+            );
+            let _ = std::fs::write(format!("{sync_dir}/KeyTable"), keytable);
+            let _ = std::fs::write(format!("{sync_dir}/SigningTable"), signingtable);
+        } else {
+            tracing::warn!(domain = %domain_row.domain, selector = %selector, "dkim key write to shared volume failed — mail will be unsigned");
+        }
+    }
 
     crate::db::audit(
         &s.pool,
@@ -1730,10 +1760,21 @@ async fn create_dmarc_report(
     Json(req): Json<DmarcCreate>,
 ) -> Result<Json<serde_json::Value>, ErrorResponse> {
     let _actor = require_admin(&s, &headers).await?;
-    // M-13: size limits + basic XML sanity before storing.
+    // M-13: size limits + basic XML sanity before storing. A full XML parse
+    // with entity protection would need an XML parser dependency; the
+    // checks here reject the common XXE/billion-laughs shapes.
     if req.xml.len() > 1_000_000 {
         return Err(ErrorResponse(AppError::Validation(
             "report too large".into(),
+        )));
+    }
+    let lower = req.xml.to_lowercase();
+    if lower.contains("<!doctype")
+        || lower.contains("<!entity")
+        || lower.contains("<!--") && lower.contains("entity")
+    {
+        return Err(ErrorResponse(AppError::Validation(
+            "invalid DMARC report XML (DOCTYPE/ENTITY rejected)".into(),
         )));
     }
     let trimmed = req.xml.trim_start();
@@ -1903,7 +1944,11 @@ async fn totp_enroll(
 ) -> Result<Json<TotpEnrollResp>, ErrorResponse> {
     // C-02: target is the authenticated user only — never a client-supplied email.
     let p = authenticate(&s, &headers).await?;
-    if !s.tight_limiter.check(&format!("totp-enroll:{}", p.user_id)) {
+    if !s
+        .tight_limiter
+        .check(&format!("totp-enroll:{}", p.user_id))
+        .await
+    {
         return Err(ErrorResponse(AppError::TooManyRequests));
     }
     let row: Option<(String, bool, String, Option<i64>)> = sqlx::query_as(
@@ -1927,17 +1972,25 @@ async fn totp_enroll(
         return Err(ErrorResponse(AppError::Unauthorized));
     }
     // If 2FA is already active, changing it also requires a current code.
+    // (current_secret may be ciphertext — decrypt before verifying.)
     if already_enabled {
         let code = req
             .code
             .as_deref()
             .ok_or_else(|| ErrorResponse(AppError::Unauthorized))?;
-        check_totp_code(&current_secret, last_step, code)?;
+        let plain = synth_common::secrets::decrypt(&s.config.encryption_key, &current_secret)
+            .map_err(|e| ErrorResponse(AppError::Internal(e.to_string())))?;
+        check_totp_code(&plain, last_step, code)?;
     }
+    // Audit N-08: store the new secret as *pending* (encrypted) instead of
+    // clobbering the active secret. Activation happens only in totp_verify,
+    // so abandoning enrollment cannot disable 2FA or log the user out.
     let secret = synth_common::totp::generate_secret();
-    sqlx::query("INSERT INTO user_totp (user_id, secret, enabled, last_used_step) VALUES ($1,$2,false,NULL) ON CONFLICT (user_id) DO UPDATE SET secret=EXCLUDED.secret, enabled=false, verified_at=NULL, last_used_step=NULL")
-        .bind(p.user_id).bind(&secret).execute(&s.pool).await.map_err(|e| ErrorResponse(AppError::Database(e)))?;
-    crate::db::bump_token_version(&s.pool, p.user_id).await.ok();
+    let pending_enc = synth_common::secrets::encrypt(&s.config.encryption_key, &secret)
+        .map_err(|e| ErrorResponse(AppError::Internal(e.to_string())))?;
+    let pending_expiry = Utc::now() + chrono::Duration::minutes(10);
+    sqlx::query("INSERT INTO user_totp (user_id, secret, enabled, last_used_step, secret_pending, pending_expires_at) VALUES ($1,$2,false,NULL,$3,$4) ON CONFLICT (user_id) DO UPDATE SET secret_pending=EXCLUDED.secret_pending, pending_expires_at=EXCLUDED.pending_expires_at")
+        .bind(p.user_id).bind(pending_enc.clone()).bind(&pending_enc).bind(pending_expiry).execute(&s.pool).await.map_err(|e| ErrorResponse(AppError::Database(e)))?;
     crate::db::audit(
         &s.pool,
         Some(p.user_id),
@@ -1966,7 +2019,11 @@ async fn totp_verify(
 ) -> Result<Json<serde_json::Value>, ErrorResponse> {
     // C-02: authentication required; target is the caller only.
     let p = authenticate(&s, &headers).await?;
-    if !s.tight_limiter.check(&format!("totp-verify:{}", p.user_id)) {
+    if !s
+        .tight_limiter
+        .check(&format!("totp-verify:{}", p.user_id))
+        .await
+    {
         return Err(ErrorResponse(AppError::TooManyRequests));
     }
     if let Some(pw) = &req.password {
@@ -1981,24 +2038,58 @@ async fn totp_verify(
             return Err(ErrorResponse(AppError::Unauthorized));
         }
     }
-    let row: Option<(String, String, Option<i64>)> = sqlx::query_as(
-        "SELECT u.email::text, t.secret, t.last_used_step FROM users u JOIN user_totp t ON t.user_id=u.id WHERE u.id=$1",
+    let row: Option<(String, String, String, Option<i64>)> = sqlx::query_as(
+        "SELECT u.email::text, t.secret, t.secret_pending, t.last_used_step FROM users u JOIN user_totp t ON t.user_id=u.id WHERE u.id=$1",
     )
     .bind(p.user_id)
     .fetch_optional(&s.pool)
     .await
     .map_err(|e| ErrorResponse(AppError::Database(e)))?;
-    let (email, secret, last_step) =
+    let (email, active_secret, pending_secret, last_step) =
         row.ok_or_else(|| ErrorResponse(AppError::NotFound("2FA not enrolled".into())))?;
-    let step = check_totp_code(&secret, last_step, &req.totp_code)?;
-    sqlx::query(
-        "UPDATE user_totp SET enabled=true, verified_at=now(), last_used_step=$2 WHERE user_id=$1",
-    )
-    .bind(p.user_id)
-    .bind(step)
-    .execute(&s.pool)
-    .await
-    .map_err(|e| ErrorResponse(AppError::Database(e)))?;
+    // Audit N-08: verify against the *pending* secret first; fall back to the
+    // active secret so the endpoint also confirms already-enabled accounts.
+    let decrypt = |encoded: &str| {
+        synth_common::secrets::decrypt(&s.config.encryption_key, encoded)
+            .map_err(|e| ErrorResponse(AppError::Internal(e.to_string())))
+    };
+    let (candidate_secret, step, activating) = {
+        let mut verified: Option<(i64, bool)> = None;
+        if !pending_secret.is_empty() {
+            let plain = decrypt(&pending_secret)?;
+            if let Ok(step) = check_totp_code(&plain, last_step, &req.totp_code) {
+                verified = Some((step, true));
+            }
+        }
+        if verified.is_none() && !active_secret.is_empty() {
+            let plain = decrypt(&active_secret)?;
+            if let Ok(step) = check_totp_code(&plain, last_step, &req.totp_code) {
+                verified = Some((step, false));
+            }
+        }
+        match verified {
+            Some((step, activating)) => (pending_secret.clone(), step, activating),
+            None => return Err(ErrorResponse(AppError::Unauthorized)),
+        }
+    };
+    let _ = candidate_secret;
+    if activating {
+        // Move pending -> active, clear pending (encrypted at rest in both).
+        sqlx::query("UPDATE user_totp SET secret=secret_pending, secret_pending=NULL, pending_expires_at=NULL, enabled=true, verified_at=now(), last_used_step=$2 WHERE user_id=$1")
+            .bind(p.user_id).bind(step)
+            .execute(&s.pool)
+            .await
+            .map_err(|e| ErrorResponse(AppError::Database(e)))?;
+    } else {
+        sqlx::query(
+            "UPDATE user_totp SET enabled=true, verified_at=now(), last_used_step=$2 WHERE user_id=$1",
+        )
+        .bind(p.user_id)
+        .bind(step)
+        .execute(&s.pool)
+        .await
+        .map_err(|e| ErrorResponse(AppError::Database(e)))?;
+    }
     crate::db::audit(
         &s.pool,
         Some(p.user_id),
@@ -2049,7 +2140,7 @@ async fn totp_disable(
         synth_common::metrics::inc_auth_failure();
         return Err(ErrorResponse(AppError::Unauthorized));
     }
-    sqlx::query("UPDATE user_totp SET enabled=false WHERE user_id=$1")
+    sqlx::query("UPDATE user_totp SET enabled=false, secret_pending=NULL, pending_expires_at=NULL WHERE user_id=$1")
         .bind(p.user_id)
         .execute(&s.pool)
         .await
@@ -2083,7 +2174,10 @@ async fn require_totp_or_ok(
     match row {
         Some((true, secret, last_step)) => {
             let code = code.ok_or_else(|| ErrorResponse(AppError::Unauthorized))?;
-            let step = check_totp_code(&secret, last_step, code)?;
+            // Audit M-15: secret is encrypted at rest; decrypt before use.
+            let plain = synth_common::secrets::decrypt(&s.config.encryption_key, &secret)
+                .map_err(|e| ErrorResponse(AppError::Internal(e.to_string())))?;
+            let step = check_totp_code(&plain, last_step, code)?;
             sqlx::query("UPDATE user_totp SET last_used_step=$2 WHERE user_id=$1")
                 .bind(user_id)
                 .bind(step)

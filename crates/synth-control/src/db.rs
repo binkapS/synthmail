@@ -28,13 +28,35 @@ pub async fn seed_admin(pool: &PgPool) -> anyhow::Result<()> {
         std::env::var("INITIAL_ADMIN_EMAIL").unwrap_or_else(|_| "admin@example.com".to_string());
     let generated;
     let password = match initial_admin_password() {
-        Some(p) => p,
+        Some(p) => {
+            // Audit N-02: the seed password must satisfy the same policy as
+            // user-created passwords (length + denylist, no HIBP fetch here).
+            synth_common::validate_password_strength(&p, 12)
+                .map_err(|e| anyhow::anyhow!("INITIAL_ADMIN_PASSWORD rejected: {e}"))?;
+            p
+        }
         None => {
             generated = random_password();
-            tracing::error!(
+            // Audit N-09: never log the generated credential. Write it to a
+            // 0600 file (or stdout when no writable dir exists) and tell the
+            // operator to rotate it and delete the file immediately.
+            let path = "/run/secrets/initial-admin-password";
+            let printed_to_stdout = std::fs::write(path, format!("{}\n", generated)).is_ok();
+            if printed_to_stdout {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+                }
+                eprintln!(
+                    "INITIAL_ADMIN_PASSWORD not set. A one-time admin password was written to {path} (0600).\nRetrieve it, log in, rotate the password, and delete the file."
+                );
+            }
+            tracing::warn!(
                 email = %email,
-                password = %generated,
-                "INITIAL_ADMIN_PASSWORD not set; generated one-time admin password (store it, then rotate). No default password is used."
+                path,
+                printed_to_stdout,
+                "INITIAL_ADMIN_PASSWORD not set; one-time admin password generated (see file, not logs)"
             );
             generated
         }

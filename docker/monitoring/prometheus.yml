@@ -15,7 +15,6 @@ scrape_configs:
     static_configs:
       - targets: ["synth-watchdog:8081"]
     metrics_path: /metrics
-  - job_name: postfix-queue
-    static_configs:
-      - targets: ["synth-watchdog:8081"]
-    metrics_path: /metrics
+  # NOTE: the previous "postfix-queue" job scraped synth-watchdog a second
+  # time and never measured the Postfix queue. Removed (audit M-21);
+  # a real postfix-queue exporter can be added once one is shipped.

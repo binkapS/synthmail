@@ -72,7 +72,7 @@ pub fn generate(selector: &str, key_type: &str) -> Result<DkimKeyPair> {
 
 pub fn opendkim_keytable_entry(domain: &str, pair: &DkimKeyPair) -> String {
     format!(
-        "{}._domainkey.{} {}:{}:/etc/opendkim/keys/{}/default.private\n",
+        "{}._domainkey.{} {}:{}:/etc/opendkim/keys/{}.pem\n",
         pair.selector, domain, domain, pair.selector, pair.selector
     )
 }

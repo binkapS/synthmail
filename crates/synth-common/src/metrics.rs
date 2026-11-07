@@ -5,6 +5,7 @@ static AUTH_FAILURES: AtomicU64 = AtomicU64::new(0);
 static API_REQUESTS: AtomicU64 = AtomicU64::new(0);
 static MAIL_SENT: AtomicU64 = AtomicU64::new(0);
 static IMAP_FETCHES: AtomicU64 = AtomicU64::new(0);
+static QUEUE_DEPTH: AtomicU64 = AtomicU64::new(0);
 
 pub fn inc_auth_attempt() {
     AUTH_ATTEMPTS.fetch_add(1, Ordering::Relaxed);
@@ -20,6 +21,10 @@ pub fn inc_mail_sent() {
 }
 pub fn inc_imap_fetch() {
     IMAP_FETCHES.fetch_add(1, Ordering::Relaxed);
+}
+/// Set the current deferred-queue depth gauge (audit M-20).
+pub fn set_queue_depth(depth: u64) {
+    QUEUE_DEPTH.store(depth, Ordering::Relaxed);
 }
 
 pub fn render_prometheus(service: &str) -> String {
@@ -39,12 +44,16 @@ pub fn render_prometheus(service: &str) -> String {
 # HELP {service}_imap_fetches_total IMAP fetches
 # TYPE {service}_imap_fetches_total counter
 {service}_imap_fetches_total {}
+# HELP {service}_queue_depth Deferred queue depth (gauge)
+# TYPE {service}_queue_depth gauge
+{service}_queue_depth {}
 ",
         AUTH_ATTEMPTS.load(Ordering::Relaxed),
         AUTH_FAILURES.load(Ordering::Relaxed),
         API_REQUESTS.load(Ordering::Relaxed),
         MAIL_SENT.load(Ordering::Relaxed),
         IMAP_FETCHES.load(Ordering::Relaxed),
+        QUEUE_DEPTH.load(Ordering::Relaxed),
     )
 }
 

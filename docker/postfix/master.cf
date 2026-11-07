@@ -7,6 +7,8 @@ smtps     inet  n       -       -       -       -       smtpd
   -o syslog_name=postfix/smtps
   -o smtpd_tls_wrappermode=yes
   -o smtpd_tls_security_level=encrypt
+  -o smtpd_tls_auth_only=yes
+  -o smtpd_recipient_restrictions=permit_sasl_authenticated,reject_unauth_destination
 pickup    fifo  n       -       60      1       pickup
 cleanup   unix  n       -       -       -       cleanup
 qmgr      fifo  n       -       n       300     qmgr

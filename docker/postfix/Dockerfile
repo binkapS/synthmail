@@ -14,13 +14,14 @@ RUN mkdir -p /var/spool/postfix /var/spool/postfix/deferred /etc/postfix \
     && chmod 2775 /var/spool/postfix
 COPY main.cf /etc/postfix/main.cf
 COPY master.cf /etc/postfix/master.cf
-# Postfix pgsql maps (audit H-06). Entrypoint substitutes POSTGRES_PASSWORD
-# into the files below; contents are checked in with a ${POSTGRES_PASSWORD}
-# placeholder.
+# Postfix pgsql maps (audit H-06). The entrypoint substitutes the password
+# with a portable awk helper (audit N-12): the old `sed s|...|...|` broke
+# on passwords containing & or the delimiter.
 COPY pgsql /etc/postfix/pgsql
-RUN chmod 600 /etc/postfix/pgsql/*.cf && chown postfix:postfix /etc/postfix/pgsql/*.cf
-RUN postconf -e "myhostname = mail.example.com" || true
-# entrypoint renders cert paths, substitutes the pgsql password, then starts postfix
-ENTRYPOINT ["/bin/sh", "-c", "sed -i \"s/\\$\\{POSTGRES_PASSWORD\\}/${POSTGRES_PASSWORD:-}/g\" /etc/postfix/pgsql/*.cf; postfix start; tail -f /var/log/mail.log || sleep infinity"]
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod 600 /etc/postfix/pgsql/*.cf && chown postfix:postfix /etc/postfix/pgsql/*.cf \
+    && chmod +x /usr/local/bin/entrypoint.sh \
+    && postconf -e "myhostname = mail.example.com" || true
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 EXPOSE 25 465 587
 HEALTHCHECK CMD postfix status || exit 1

@@ -173,12 +173,18 @@ pub async fn create_event(
     ))
 }
 
-pub async fn dav_discovery(headers: HeaderMap) -> String {
+/// Audit N-03: require authentication so DAV discovery is consistent with
+/// the authenticated JMAP/DAV JSON API.
+pub async fn dav_discovery(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+) -> Result<String, ErrorResponse> {
+    authenticate_user(&s, &headers).await?;
     let _host = headers
         .get("host")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("mail.example.com");
-    r#"<?xml version="1.0" encoding="utf-8"?>
+    Ok(r#"<?xml version="1.0" encoding="utf-8"?>
 <D:multistatus xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:carddav" xmlns:CAL="urn:ietf:params:xml:ns:caldav">
   <D:response><D:href>/dav/addressbooks/</D:href>
     <D:propstat><D:prop><C:addressbook-home-set/></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat>
@@ -187,7 +193,7 @@ pub async fn dav_discovery(headers: HeaderMap) -> String {
     <D:propstat><D:prop><CAL:calendar-home-set/></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat>
   </D:response>
 </D:multistatus>"#
-        .to_string()
+        .to_string())
 }
 
 #[cfg(test)]

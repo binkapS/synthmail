@@ -1,12 +1,21 @@
-# HA runbook (stretch goal)
+# HA runbook — REMOVED (audit M-17)
 
-```bash
-docker compose -f compose.yaml -f docker/compose.ha.yaml --profile ha up -d
-# Postgres primary (postgres) + replica (postgres-replica, streaming via wal_level=replica)
-# Postfix primary (postfix :25/:587) + secondary (postfix-2, shared maildir volume)
-```
+The `docker/compose.ha.yaml` overlay was deleted in the re-audit hardening
+pass (2026-11-07): it did not form a working streaming replica
+(`postgres-replica` never ran `pg_basebackup` and the `primary_conninfo`
+string was never connected to), and it duplicated Postfix ports without a
+load balancer. Keeping a non-functional HA story is worse than shipping
+none, so this runbook is retired pending a real implementation.
 
-- **Promote replica**: `pg_ctl -D ... promote` on replica, repoint `DATABASE_URL` in `.env`, `docker compose restart synth-control synth-webmail`.
-- **Postfix multi-node**: front with `edge` nginx upstream (round-robin), shared `maildir` volume, `postfix-spool-2` for queue (queues not replicated — use LMTP replay on failover).
-- **Dovecot**: keep single-node behind LB; Dovecot has no native replication (use `dsync` for future).
-- **Alternative**: Stalwart cluster (see `docs/adr/0003-pure-rust-evaluation.md`) — NATS/Redis coordination, RocksDB/Postgres shared store.
+Alternatives today:
+
+- **Multi-instance at the container level** (no HA guarantee): scale
+  `synth-control`/`synth-webmail` replicas — they are stateless except for
+  Postgres/Redis; the rate limiter is now Redis-shared and both respect
+  `token_version`.
+- **Stalwart cluster** (`docker/compose.stalwart.yaml`, standalone only —
+  see `docs/adr/0003-pure-rust-evaluation.md`): one profile-bound stack,
+  not a cluster; do not run it alongside the base Postfix/Dovecot stack.
+- **Future work**: Patroni/`repmgr` for Postgres + a real PostgreSQL
+  replication slot, plus a `dsync`-based Dovecot story. Until then, rely
+  on the `backup` profile plus documented restore.

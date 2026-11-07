@@ -30,6 +30,9 @@ services:
       - "25:25"
       - "465:465"
       - "587:587"
+    # TLS (audit C-06): certs must exist under certs/live/<MAIL_HOST>/ before
+    # postfix starts. Provision them with the acme profile or copy manually;
+    # the container fails closed otherwise (smtpd_tls_cert_file missing).
     volumes:
       - postfix-spool:/var/spool/postfix
       - logs:/var/log
@@ -53,12 +56,15 @@ services:
     build:
       context: ./docker/dovecot
       dockerfile: Dockerfile
+    # Loopback-only (audit N-05): plaintext IMAP/POP3 on 143/110 carry
+    # credentials, and TLS is fail-closed. Expose via a TLS terminator
+    # (edge) or an SSH tunnel. Publish 993/995/4190 only after ACME.
     ports:
-      - "143:143"
-      - "993:993"
-      - "110:110"
-      - "995:995"
-      - "4190:4190"
+      - "127.0.0.1:143:143"
+      - "127.0.0.1:993:993"
+      - "127.0.0.1:110:110"
+      - "127.0.0.1:995:995"
+      - "127.0.0.1:4190:4190"
     volumes:
       - maildir:/var/vmail
       - logs:/var/log
@@ -81,7 +87,8 @@ services:
   rspamd:
     # Config split into local.d/<module>.conf snippets (audit H-13);
     # local.d/redis.conf uses ${REDIS_PASSWORD} via UCL env expansion.
-    image: rspamd/rspamd:latest
+    # Pinned (audit M-16); bump deliberately with a config test.
+    image: rspamd/rspamd:1.94.2
     environment:
       - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
     volumes:
@@ -97,7 +104,9 @@ services:
     restart: unless-stopped
 
   clamav:
-    image: clamav/clamav:stable-debian
+    image: clamav/clamav:stable-debian # pinned by release channel (audit M-16 note)
+    # NOTE: clamav publishes only stable-debian / unstable — no numeric tag.
+    # Pin by digest in production once a digest is known.
     volumes:
       - clamav:/var/lib/clamav
     networks: [mailnet]
@@ -110,7 +119,7 @@ services:
     restart: unless-stopped
 
   freshclam:
-    image: clamav/clamav:stable-debian
+    image: clamav/clamav:stable-debian # see clamav pin note above
     command: ["freshclam", "-d", "--foreground"]
     volumes:
       - clamav:/var/lib/clamav
@@ -159,10 +168,17 @@ services:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
       # Fail fast if unset (audit C-05) — no dev-secret fallback.
       - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET must be set}
+      # Encryption key for DKIM/TOTP secrets at rest (audit M-15/H-07);
+      # 64 hex chars (32 bytes). Fail fast — keys are never auto-generated.
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set (64 hex chars)}
       # Forwarded so first-boot admin seeding uses operator values (audit C-05).
+      # Leave empty to have a random one-time password generated instead.
       - INITIAL_ADMIN_EMAIL=${INITIAL_ADMIN_EMAIL:-admin@example.com}
-      - INITIAL_ADMIN_PASSWORD=${INITIAL_ADMIN_PASSWORD:-ChangeMe123!Admin}
+      - INITIAL_ADMIN_PASSWORD=${INITIAL_ADMIN_PASSWORD:-}
       - MAIL_HOST=${MAIL_HOST:-mail.example.com}
+    volumes:
+      # Shared with opendkim so newly generated keys are signed immediately (audit H-07).
+      - dkim:/var/dkim-sync
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -184,6 +200,7 @@ services:
       - DATABASE_URL=${DATABASE_URL:-postgres://synth:synth_dev@postgres:5432/synthmail}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
       - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET must be set}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set (64 hex chars)}
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -303,12 +320,20 @@ services:
       timeout: 5s
     restart: unless-stopped
 
+  synth-ui:
+    build:
+      context: .
+      dockerfile: docker/synth-ui/Dockerfile
+    ports:
+      # Loopback-only (audit H-11). Expose via edge /admin/.
+      - "127.0.0.1:3002:80"
+    networks: [mailnet, edge]
+
   backup:
-    # postgres:16-alpine provides pg_dump (audit H-09). The rclone upload
-    # step needs an image that also contains rclone — full backup tooling
-    # (rclone + pg_dump + tar, encrypted, checksummed, restore-tested)
-    # remains TODO; see CHANGELOG-AUDIT.md.
-    image: postgres:16-alpine
+    # Full tooling (audit H-09): pg_dump + tar + sha256 + retention + rclone.
+    build:
+      context: ./docker/backup
+      dockerfile: Dockerfile
     profiles: ["backup"]
     volumes:
       - backups:/backups
@@ -316,10 +341,33 @@ services:
     environment:
       - PGPASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      - PGUSER=${POSTGRES_USER:-synth}
+      - PGDB=${POSTGRES_DB:-synthmail}
+      - BACKUP_RETENTION_DAYS=${BACKUP_RETENTION_DAYS:-14}
+      - RCLONE_REMOTE=${RCLONE_REMOTE:-}
     depends_on:
       postgres: { condition: service_healthy }
     networks: [mailnet]
-    entrypoint: ["sh", "-c", "set -e; pg_dump -Fc -h postgres -U synth synthmail > /backups/db-$$(date +%F).dump; tar -czf /backups/maildir-$$(date +%F).tar.gz /var/vmail; echo 'backup complete'; ls -lh /backups"]
+
+  acme:
+    # Let's Encrypt HTTP-01 challenges served by synth-watchdog :8081
+    # (audit C-06). Run: docker compose --profile acme run --rm acme
+    image: certbot/certbot:v4.0.0
+    profiles: ["acme"]
+    environment:
+      - MAIL_HOST=${MAIL_HOST:?MAIL_HOST must be set}
+      - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL:?LETSENCRYPT_EMAIL must be set}
+    volumes:
+      - certs:/etc/letsencrypt
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >-
+        certbot certonly --webroot -w /etc/letsencrypt/acme-challenge
+        -d $${MAIL_HOST}
+        --email $${LETSENCRYPT_EMAIL} --agree-tos --non-interactive
+        --staging
+        && echo 'ACME complete — re-run without --staging for production certs'
 
 volumes:
   maildir:

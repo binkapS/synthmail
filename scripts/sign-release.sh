@@ -8,6 +8,17 @@ for svc in synth-control synth-webmail synth-watchdog; do
   cosign sign --yes --key cosign.key "${img}"
 done
 echo "Signed v${VERSION}. Pins:" >> docs/releases/v${VERSION}.txt
-lockfiles="$(mktemp)"
+# Write the image digests into a real lockfile (audit N-11). Previously
+# this was `lockfiles="$(mktemp)"` and the file was left empty.
+LOCKFILE="docs/releases/v${VERSION}.digests.txt"
+: > "${LOCKFILE}"
+for svc in synth-control synth-webmail synth-watchdog; do
+  # Pull the digest from the registry; fall back to the local image id.
+  digest="$(docker buildx imagetools inspect "ghcr.io/synthmail/${svc}:${VERSION}" --format '{{.Config.digest}}' 2>/dev/null || true)"
+  if [ -z "${digest}" ]; then
+    digest="$(docker inspect "ghcr.io/synthmail/${svc}:${VERSION}" --format='{{.Id}}' 2>/dev/null || echo "unknown")"
+  fi
+  echo "ghcr.io/synthmail/${svc}:${VERSION} ${digest}" >> "${LOCKFILE}"
+done
+echo "Digest lockfile written to ${LOCKFILE}"
 echo "cosign.pub public key: $(cat cosign.pub)"
-echo "Lockfile written to ${lockfiles}"

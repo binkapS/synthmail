@@ -18,8 +18,14 @@ impl AppState {
         let redis_client = redis::Client::open(config.redis_url.clone())
             .map_err(|e| anyhow::anyhow!("redis client failed: {e}"))?;
         Ok(Self {
-            limiter: RateLimiter::new(config.rate_limit_per_min as usize),
-            tight_limiter: RateLimiter::new((config.rate_limit_per_min as usize / 2).max(5)),
+            limiter: RateLimiter::with_redis(
+                config.rate_limit_per_min as usize,
+                redis_client.clone(),
+            ),
+            tight_limiter: RateLimiter::with_redis(
+                (config.rate_limit_per_min as usize / 2).max(5),
+                redis_client.clone(),
+            ),
             config,
             pool,
             redis_client,

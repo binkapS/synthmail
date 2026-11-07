@@ -53,7 +53,9 @@ pub struct AuthUser {
 /// Validate the session JWT (shared secret with synth-control) and resolve the
 /// user, verifying `active` and the DB token_version (H-04). Every webmail
 /// route except /healthz, /readyz, /metrics and /api/v1/auth/login must call
-/// this and scope its queries by `user_id`.
+/// this and scope its queries by `user_id`. Users flagged
+/// `force_password_change` are rejected here (audit R-04) so the webmail
+/// API is unusable until the password has been rotated.
 pub async fn authenticate_user(
     s: &AppState,
     headers: &HeaderMap,
@@ -70,15 +72,22 @@ pub async fn authenticate_user(
         .map_err(|_| ErrorResponse(AppError::Unauthorized))?;
     let user_id =
         uuid::Uuid::parse_str(&claims.sub).map_err(|_| ErrorResponse(AppError::Unauthorized))?;
-    let row: Option<(String, bool, i64)> =
-        sqlx::query_as("SELECT kind, active, token_version FROM users WHERE id=$1")
-            .bind(user_id)
-            .fetch_optional(&s.pool)
-            .await
-            .map_err(|e| ErrorResponse(AppError::Database(e)))?;
-    let (kind, active, db_tv) = row.ok_or_else(|| ErrorResponse(AppError::Unauthorized))?;
+    let row: Option<(String, bool, i64, bool)> = sqlx::query_as(
+        "SELECT kind, active, token_version, force_password_change FROM users WHERE id=$1",
+    )
+    .bind(user_id)
+    .fetch_optional(&s.pool)
+    .await
+    .map_err(|e| ErrorResponse(AppError::Database(e)))?;
+    let (kind, active, db_tv, force_password_change) =
+        row.ok_or_else(|| ErrorResponse(AppError::Unauthorized))?;
     if !active || claims.tv as i64 != db_tv {
         return Err(ErrorResponse(AppError::Unauthorized));
+    }
+    if force_password_change {
+        return Err(ErrorResponse(AppError::Validation(
+            "password change required before using the webmail API".into(),
+        )));
     }
     Ok(AuthUser {
         user_id,
@@ -173,11 +182,15 @@ async fn web_login(
 ) -> Result<Json<LoginResp>, ErrorResponse> {
     use synth_common::{create_session_token, verify_password};
     let ip = client_ip(&headers);
-    if !s.limiter.check(&format!(
-        "login:{}:{}",
-        ip.as_deref().unwrap_or("unknown"),
-        req.email.to_lowercase()
-    )) {
+    if !s
+        .limiter
+        .check(&format!(
+            "login:{}:{}",
+            ip.as_deref().unwrap_or("unknown"),
+            req.email.to_lowercase()
+        ))
+        .await
+    {
         return Err(ErrorResponse(AppError::TooManyRequests));
     }
     let row: Option<(uuid::Uuid, String, String, String, bool, i64)> = sqlx::query_as(
@@ -199,6 +212,7 @@ async fn web_login(
         return Err(ErrorResponse(AppError::Unauthorized));
     }
     // Enforce TOTP exactly like synth-control (with replay protection).
+    // Audit M-15: secret is encrypted at rest — decrypt before verifying.
     let totp_row: Option<(bool, String, Option<i64>)> =
         sqlx::query_as("SELECT enabled, secret, last_used_step FROM user_totp WHERE user_id=$1")
             .bind(id)
@@ -210,8 +224,10 @@ async fn web_login(
             .totp_code
             .as_deref()
             .ok_or_else(|| ErrorResponse(AppError::Unauthorized))?;
+        let plain = synth_common::secrets::decrypt(&s.config.encryption_key, &secret)
+            .map_err(|e| ErrorResponse(AppError::Internal(e.to_string())))?;
         let step = synth_common::totp::verify_with_step(
-            &secret,
+            &plain,
             code,
             chrono::Utc::now().timestamp() as u64,
         )

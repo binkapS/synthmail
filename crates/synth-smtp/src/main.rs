@@ -18,7 +18,9 @@ use tokio::net::{TcpListener, TcpStream};
     about = "Phase 3 spike: ESMTP shim with Redis queue"
 )]
 struct Args {
-    #[arg(long, default_value = "0.0.0.0")]
+    // Loopback by default (audit N-05): this shim is unauthenticated, so it
+    // must not listen on all interfaces out of the box.
+    #[arg(long, default_value = "127.0.0.1")]
     host: String,
     #[arg(long, default_value_t = 2525)]
     port: u16,
@@ -293,13 +295,26 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(addr = %listener.local_addr().unwrap(), "synth-smtp listening (spike)");
     let forward = args.forward_to_postfix;
     let postfix_host = args.postfix_host.clone();
+    // Audit N-05: cap concurrent connections so an unauthenticated client
+    // cannot exhaust memory/CPU by holding many connections open.
+    let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(100));
     loop {
         let (stream, _) = listener.accept().await?;
+        let permit = match semaphore.clone().try_acquire_owned() {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
         let r = redis.clone();
         let f = forward;
         let ph = postfix_host.clone();
         tokio::spawn(async move {
-            let _ = handle_client(stream, r, f, ph).await;
+            let _permit = permit;
+            // Idle timeout so slow clients cannot hold slots forever.
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_secs(60),
+                handle_client(stream, r, f, ph),
+            )
+            .await;
         });
     }
 }

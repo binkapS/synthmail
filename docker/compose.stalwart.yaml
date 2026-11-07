@@ -1,18 +1,24 @@
-# Phase 3: Stalwart drop-in evaluation (profile `stalwart`)
-# Bring up with: docker compose -f compose.yaml -f docker/compose.stalwart.yaml --profile stalwart up -d
+# Phase 3: Stalwart drop-in evaluation (profile `stalwart`).
+# STANDALONE ONLY (audit N-10): run this overlay WITHOUT the base stack;
+# publishing the same mail ports twice makes Docker fail to bind.
+# Bring up with:
+#   docker compose -f compose.yaml -f docker/compose.stalwart.yaml --profile stalwart up -d
+# Verify with mail-tester + Thunderbird + GET /jmap/session.
 services:
   stalwart:
     image: stalwartlabs/stalwart:v1
     init: true
     restart: unless-stopped
     ports:
+      # Loopback-only (audit N-10): same binding policy as the base stack.
+      # Publish beyond loopback only once the profile is the sole mail stack.
       - "127.0.0.1:8080:8080"
-      - "25:25"
-      - "465:465"
-      - "993:993"
-      - "995:995"
-      - "4190:4190"
-      - "443:443"
+      - "127.0.0.1:25:25"
+      - "127.0.0.1:465:465"
+      - "127.0.0.1:993:993"
+      - "127.0.0.1:995:995"
+      - "127.0.0.1:4190:4190"
+      - "127.0.0.1:443:443"
     volumes:
       - stalwart_etc:/etc/stalwart
       - stalwart_data:/var/lib/stalwart

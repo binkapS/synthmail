@@ -44,7 +44,27 @@ async fn main() -> anyhow::Result<()> {
     cfg.validate().map_err(|e| anyhow::anyhow!(e))?;
     let state = app::AppState::new(cfg.clone()).await?;
 
-    // Serve embedded UI if present (Phase 2: synth-ui static)
+    // Audit N-04: run the FTS indexer periodically instead of leaving
+    // body_tsv NULL (search would otherwise stay empty). Interval batching
+    // is idempotent — the same rows are recomputed until indexed.
+    {
+        let pool = state.pool.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                match fts_indexer::reindex_batch(&pool, 500).await {
+                    Ok(n) => {
+                        if n > 0 {
+                            tracing::info!(reindexed = n, "fts reindex batch complete");
+                        }
+                    }
+                    Err(e) => tracing::warn!(error = %e, "fts reindex batch failed"),
+                }
+            }
+        });
+    }
+
     let listener =
         tokio::net::TcpListener::bind(format!("{}:{}", state.config.host, state.config.port))
             .await?;
