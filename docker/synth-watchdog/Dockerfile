@@ -1,11 +1,7 @@
-FROM lukechampine.com/cargo-chef:latest-rust-1.83 AS chef
+FROM rust:bookworm AS builder
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY crates crates
-
-FROM chef AS builder
-WORKDIR /app
-COPY . .
 RUN cargo build --release --bin synth-watchdog
 
 FROM debian:bookworm-slim AS runtime

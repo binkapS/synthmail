@@ -1,19 +1,8 @@
-# SynthMail synth-control — multi-stage with cargo-chef
-FROM lukechampine.com/cargo-chef:latest-rust-1.83 AS chef
+# SynthMail synth-control — multi-stage
+FROM rust:bookworm AS builder
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY crates crates
-COPY --from=chef /usr/local/cargo /usr/local/cargo
-
-# cargo-chef prepare (separate layer for deps)
-RUN cargo chef prepare --bin synth-control
-
-FROM chef AS builder
-WORKDIR /app
-COPY --from=chef /usr/local/cargo /usr/local/cargo
-COPY --from=chef /app /app
-COPY . .
-RUN cargo chef cook --bin synth-control
 RUN cargo build --release --bin synth-control
 
 FROM debian:bookworm-slim AS runtime

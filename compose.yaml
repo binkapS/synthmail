@@ -63,7 +63,7 @@ services:
     restart: unless-stopped
 
   rspamd:
-    image: rspamd/rspamd:stable
+    image: rspamd/rspamd:latest
     volumes:
       - rspamd:/var/lib/rspamd
       - ./docker/rspamd/rspamd.conf:/etc/rspamd/local.d/rspamd.conf:ro
@@ -76,7 +76,7 @@ services:
     restart: unless-stopped
 
   clamav:
-    image: clamav/clamav:stable
+    image: clamav/clamav:stable-debian
     volumes:
       - clamav:/var/lib/clamav
     networks: [mailnet]
@@ -87,7 +87,7 @@ services:
     restart: unless-stopped
 
   freshclam:
-    image: clamav/clamav:stable
+    image: clamav/clamav:stable-debian
     command: ["freshclam", "-d", "--foreground"]
     volumes:
       - clamav:/var/lib/clamav
@@ -95,10 +95,11 @@ services:
     restart: unless-stopped
 
   opendkim:
-    image: opendkim/opendkim
+    build:
+      context: ./docker/opendkim
+      dockerfile: Dockerfile
     volumes:
       - dkim:/etc/opendkim/keys
-      - ./docker/opendkim/opendkim.conf:/etc/opendkim.conf:ro
     networks: [mailnet]
     healthcheck:
       test: ["CMD", "opendkim", "-V"]
@@ -107,9 +108,9 @@ services:
     restart: unless-stopped
 
   opendmarc:
-    image: domainaware/opendmarc
-    volumes:
-      - ./docker/opendmarc/opendmarc.conf:/etc/opendmarc.conf:ro
+    build:
+      context: ./docker/opendmarc
+      dockerfile: Dockerfile
     networks: [mailnet]
     healthcheck:
       test: ["CMD", "opendmarc-check"]
@@ -202,7 +203,7 @@ services:
     restart: unless-stopped
 
   fail2ban:
-    image: fail2ban/fail2ban
+    image: linuxserver/fail2ban:latest
     volumes:
       - ./docker/fail2ban/jail.local:/etc/fail2ban/jail.local:ro
       - ./docker/fail2ban/filter.d:/etc/fail2ban/filter.d:ro
@@ -214,7 +215,7 @@ services:
     restart: unless-stopped
 
   radicale:
-    image: radicale/radicale:latest
+    image: kozea/radicale:latest
     profiles: ["dav"]
     volumes:
       - radicale_data:/data

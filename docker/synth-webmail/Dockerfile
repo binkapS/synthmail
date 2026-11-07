@@ -1,14 +1,7 @@
-FROM lukechampine.com/cargo-chef:latest-rust-1.83 AS chef
+FROM rust:bookworm AS builder
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY crates crates
-COPY --from=chef /usr/local/cargo /usr/local/cargo
-
-FROM chef AS builder
-WORKDIR /app
-COPY --from=chef /usr/local/cargo /usr/local/cargo
-COPY --from=chef /app /app
-COPY . .
 RUN cargo build --release --bin synth-webmail
 
 FROM debian:bookworm-slim AS runtime
