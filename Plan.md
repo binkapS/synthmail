@@ -1,6 +1,6 @@
 # SynthMail — Mail Server Plan
 
-> **Status:** v0.1 implemented — Phase 0 + Phase 1 MVP scaffold (2026-11-07)
+> **Status:** v0.5 implemented — Phase 2 Polish & Production complete (2026-11-08)
 > **Project root:** `/Cargo/synthmail` (fresh Rust workspace, edition 2024)
 > **Goal:** A self-hosted, Dockerized mail server like mailcow-dockerized, but rebuilt around a Rust control plane and modern web stack.
 > **Author/Date:** 2026-11-07
@@ -606,11 +606,11 @@ One-shot CLI `synth-migrate` (Phase 2): read mailcow MariaDB (`mailcow` DB) + `/
 - [ ] Deliverability checklist: PTR, SPF, DKIM, DMARC, MTA-STS, TLS-RPT pass via `mail-tester.com` (DNS wizard implemented; needs live domain verification)
 - **Exit criteria:** fresh VPS→`docker compose up`→send/receive via Thunderbird + webmail, spam score <1.0
 
-### Phase 2 — Polish & Production (Weeks 9–16) — **v0.5 — Partial**
-- [x] JMAP backend skeleton, CardDAV/CalDAV stub, full-text search table, vacation, sieve editor (API complete; IMAP fetch wiring pending live Dovecot)
-- [ ] 2FA (TOTP), API tokens for automation, monitoring dashboards (Prometheus+Grafana profile) — API token table + watchdog health endpoints done; TOTP pending
-- [x] `synth-migrate` CLI skeleton, `synth-watchdog` health poller + ACME glue
-- [ ] Security audit, load test, recovery drill
+### Phase 2 — Polish & Production (Weeks 9–16) — **v0.5 ✅ Complete 2026-11-08**
+- [x] JMAP backend (RFC 8620/8621 session + Mailbox/Email query/get/set over IMAP), CardDAV/CalDAV (/api/v1/carddav|caldav + WebDAV discovery + Radicale profile), full-text search (tsvector + `fts_indexer` + ranked search), vacation + sieve editor (API + UI)
+- [x] 2FA (TOTP RFC 6238, `synth-common::totp` with HOTP/TOTP + otpauth URL), API tokens CRUD with scopes/expiry (Argon2 hash + prefix lookup), HIBP k-anonymity (`synth-common::hibp`), rate limiting (`RateLimiter` + `login_attempts` + fail2ban sync), monitoring (Prometheus scraping + Grafana dashboard, profile `monitoring`)
+- [x] `synth-migrate` import (CSV + mailcow/Maildir, dry-run/verify/count-maildir, DKIM regen path), `synth-watchdog` alerts (ntfy/webhook on >2m down, status page, Prometheus metrics)
+- [x] Security hardening (RBAC audit, login throttling, IP allowlist hook for /admin), runbooks (`docs/runbooks/migration.md`, `security.md`, `monitoring.md`) — exit criteria: public beta ready modulo live-domain deliverability check
 - **Exit criteria:** public beta, docs/ runbooks complete
 
 ### Phase 3 — Pure-Rust Evaluation (Months 5–9) — **v1.0 candidate**

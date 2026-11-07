@@ -20,7 +20,55 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/mail/send", post(send))
         .route("/api/v1/mail/drafts", get(list_drafts).post(delete_draft))
         .route("/api/v1/auth/login", post(web_login))
+        // Phase 2: JMAP (RFC 8620/8621)
+        .route("/jmap/session", get(jmap_session))
+        .route("/jmap", post(jmap_dispatch))
+        // Phase 2: CardDAV / CalDAV
+        .route(
+            "/api/v1/carddav/contacts",
+            get(crate::carddav::list_contacts).post(crate::carddav::create_contact),
+        )
+        .route(
+            "/api/v1/carddav/contacts/{id}",
+            axum::routing::delete(crate::carddav::delete_contact),
+        )
+        .route(
+            "/api/v1/caldav/events",
+            get(crate::carddav::list_events).post(crate::carddav::create_event),
+        )
+        .route("/api/v1/caldav/query", get(crate::carddav::query_events))
+        .route("/dav", get(crate::carddav::dav_discovery))
+        .route("/.well-known/carddav", get(crate::carddav::dav_discovery))
+        .route("/.well-known/caldav", get(crate::carddav::dav_discovery))
         .with_state(state)
+}
+
+async fn jmap_session(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let api = format!("https://{}/jmap", s.config.mail_host);
+    Json(
+        serde_json::to_value(crate::jmap::session_for("user@example.com", &api))
+            .unwrap_or(serde_json::json!({})),
+    )
+}
+
+async fn jmap_dispatch(
+    Json(req): Json<crate::jmap::JmapRequest>,
+) -> Json<crate::jmap::JmapResponse> {
+    let responses = req
+        .method_calls
+        .iter()
+        .map(|c| {
+            let mut v = crate::jmap::handle_method(c);
+            if let Some(o) = v.as_object_mut() {
+                o.insert("tag".to_string(), serde_json::json!(c.tag));
+            }
+            v
+        })
+        .collect();
+    Json(crate::jmap::JmapResponse {
+        session_state: "synthmail-state-1".into(),
+        method_responses: responses,
+    })
 }
 
 async fn healthz() -> Json<serde_json::Value> {
@@ -35,8 +83,8 @@ async fn readyz(State(s): State<AppState>) -> Result<Json<serde_json::Value>, Er
     Ok(Json(serde_json::json!({"status":"ok"})))
 }
 
-async fn metrics() -> Json<serde_json::Value> {
-    Json(serde_json::json!({"synth_webmail_up": 1}))
+async fn metrics() -> String {
+    synth_common::metrics::render_prometheus("synth_webmail")
 }
 
 // ---------- Auth (delegates to synth-control DB) ----------

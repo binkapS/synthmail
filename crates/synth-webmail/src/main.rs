@@ -1,5 +1,8 @@
 mod app;
+mod carddav;
+mod fts_indexer;
 mod imap;
+mod jmap;
 mod routes;
 
 use clap::Parser;

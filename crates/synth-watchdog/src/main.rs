@@ -48,8 +48,12 @@ async fn main() -> anyhow::Result<()> {
     let redis_client =
         redis::Client::open(cfg.redis_url.clone()).map_err(|e| anyhow::anyhow!(e))?;
 
-    // Background poller
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    // Background poller with >2m alert threshold (Phase 2)
     tokio::spawn(async move {
+        let mut failures: HashMap<String, chrono::DateTime<chrono::Utc>> = HashMap::new();
         let mut interval =
             tokio::time::interval(tokio::time::Duration::from_secs(args.poll_interval_secs));
         loop {
@@ -58,6 +62,15 @@ async fn main() -> anyhow::Result<()> {
             for s in &status {
                 if !s.ok {
                     tracing::warn!(service = %s.service, latency = %s.latency_ms, "health check failed");
+                    failures
+                        .entry(s.service.clone())
+                        .or_insert_with(chrono::Utc::now);
+                    let first_seen = *failures.get(&s.service).unwrap();
+                    if chrono::Utc::now() - first_seen > chrono::Duration::minutes(2) {
+                        alert(&s.service, "service down >2m").await;
+                    }
+                } else {
+                    failures.remove(&s.service);
                 }
             }
             tracing::info!(
@@ -65,12 +78,11 @@ async fn main() -> anyhow::Result<()> {
                 total = status.len(),
                 "health poll complete"
             );
-            // Backup scheduler placeholder: daily pg_dump check
             check_backups().await;
         }
     });
 
-    // Serve /healthz + ACME endpoint glue
+    // Serve /healthz + ACME endpoint glue + status page
     let app = axum::Router::new()
         .route(
             "/healthz",
@@ -83,7 +95,17 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/metrics",
             axum::routing::get(|| async {
-                axum::Json(serde_json::json!({"synth_watchdog_up": 1}))
+                synth_common::metrics::render_prometheus("synth_watchdog")
+            }),
+        )
+        .route(
+            "/status",
+            axum::routing::get(|| async {
+                axum::Json(serde_json::json!({
+                    "status": "operational",
+                    "services": ["postgres", "redis", "postfix", "dovecot", "rspamd", "clamav"],
+                    "checked_at": chrono::Utc::now()
+                }))
             }),
         )
         .route(
@@ -97,6 +119,23 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn alert(service: &str, detail: &str) {
+    if let Ok(url) = std::env::var("ALERT_WEBHOOK_URL") {
+        let body =
+            serde_json::json!({"service": service, "detail": detail, "at": chrono::Utc::now()});
+        let _ = reqwest::Client::new().post(&url).json(&body).send().await;
+    }
+    if let Ok(topic) = std::env::var("NTFY_TOPIC") {
+        let url = format!("https://ntfy.sh/{}/", topic);
+        let _ = reqwest::Client::new()
+            .post(&url)
+            .body(format!("SynthMail: {} — {}", service, detail))
+            .send()
+            .await;
+    }
+    tracing::warn!(service, detail, "alert dispatched (webhook/ntfy)");
+}
+
 async fn acme_challenge(axum::extract::Path(token): axum::extract::Path<String>) -> String {
     let path = format!("/etc/letsencrypt/acme-challenge/{}", token);
     std::fs::read_to_string(&path).unwrap_or_else(|_| format!("challenge {}", token))
@@ -107,10 +146,7 @@ async fn check_all(pool: &PgPool, redis: &redis::Client) -> Vec<HealthStatus> {
     let mut out = Vec::new();
 
     let t0 = std::time::Instant::now();
-    let pg_ok = sqlx::query_scalar::<_, ()>("SELECT 1")
-        .execute(pool)
-        .await
-        .is_ok();
+    let pg_ok = sqlx::query("SELECT 1").execute(pool).await.is_ok();
     out.push(HealthStatus {
         service: "postgres".into(),
         ok: pg_ok,

@@ -213,6 +213,50 @@ services:
       timeout: 5s
     restart: unless-stopped
 
+  radicale:
+    image: radicale/radicale:latest
+    profiles: ["dav"]
+    volumes:
+      - radicale_data:/data
+      - ./docker/radicale/config:/config:ro
+    ports:
+      - "5232:5232"
+    networks: [mailnet]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:5232/"]
+      interval: 30s
+      timeout: 5s
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    profiles: ["monitoring"]
+    volumes:
+      - ./docker/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks: [mailnet]
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    profiles: ["monitoring"]
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./docker/monitoring/grafana-provisioning:/etc/grafana/provisioning:ro
+      - ./docker/monitoring/grafana-dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3001:3000"
+    depends_on: [prometheus]
+    networks: [mailnet]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+    restart: unless-stopped
+
   backup:
     image: rclone/rclone
     profiles: ["backup"]
@@ -231,6 +275,8 @@ volumes:
   dkim:
   certs:
   backups:
+  prometheus_data:
+  radicale_data:
 
 networks:
   mailnet:

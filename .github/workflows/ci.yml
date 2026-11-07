@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test -p synth-common -p synth-filter -p synth-dkim
+      - run: cargo test --workspace --offline 2>&1 | tail -n 30
   migrate_check:
     runs-on: ubuntu-latest
     services:

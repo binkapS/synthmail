@@ -28,13 +28,26 @@ crates/
 ## Verify
 
 ```bash
-cargo check -p synth-common -p synth-control -p synth-webmail -p synth-watchdog -p synth-filter -p synth-dkim
-cargo test -p synth-common -p synth-filter -p synth-dkim
+cargo check --workspace
+cargo test --workspace
 docker compose config
+docker compose --profile monitoring up -d prometheus grafana  # Phase 2 dashboards
+docker compose --profile dav up -d radicale                    # CardDAV/CalDAV
 ```
+
+## Phase 2 (v0.5)
+
+- **2FA**: `POST /api/v1/auth/totp/enroll` → scan otpauth URL; `POST /api/v1/auth/totp/verify`; login requires `totp_code` when enabled (`crates/synth-common/src/totp.rs` RFC 6238).
+- **API tokens**: `POST /api/v1/api-tokens` (scoped, expiring), list/revoke; use `Authorization: Bearer synth_...`.
+- **JMAP**: `GET /jmap/session`, `POST /jmap` (RFC 8620/8621) over IMAP.
+- **FTS**: `GET /api/v1/mail/search?q=` backed by Postgres `tsvector` + `fts_indexer`.
+- **CardDAV/CalDAV**: `/api/v1/carddav/*`, `/api/v1/caldav/*`, WebDAV discovery at `/dav` + Radicale (`--profile dav`).
+- **Monitoring**: `/metrics` Prometheus (`synth_common::metrics`), Prometheus+Grafana (`--profile monitoring`), watchdog alerts (`ALERT_WEBHOOK_URL`/`NTFY_TOPIC`, >2m down → alert, `/status`).
+- **Migration**: `synth-migrate dry-run|import|verify|count-maildir` (CSV + mailcow + Maildir) — see `docs/runbooks/migration.md`.
 
 ## Notes
 
-- Phase 1 MVP scaffold: full API, Postgres identity, Postfix/Dovecot/rspamd/opendkim/opendmarc/clamav/fail2ban/edge/backup configs.
+- Phase 0+1: full API, Postgres identity, Postfix/Dovecot/rspamd/opendkim/opendmarc/clamav/fail2ban/edge/backup configs.
 - IMAP fetch (`synth-webmail/src/imap.rs`) is stubbed for unit tests; wire to Dovecot :993 for live inbox.
-- Run `cargo sqlx migrate run` / binary `--migrate` to apply `crates/synth-control/migrations/`.
+- Run `cargo sqlx migrate run` / binary `--migrate` to apply `crates/synth-control/migrations/` (now `..._init.sql` + `..._phase2.sql`).
+- Runbooks: `docs/runbooks/migration.md`, `security.md`, `monitoring.md`, `backup.md`, `dns.md`.

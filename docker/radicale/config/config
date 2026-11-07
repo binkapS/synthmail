@@ -1,0 +1,9 @@
+[server]
+hosts = 0.0.0.0:5232
+max_request_body_size = 1048576000
+[storage]
+filesystem_folder = /data
+[auth]
+type = none
+[logging]
+level = info

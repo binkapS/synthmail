@@ -55,6 +55,14 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/admin/bans", get(list_bans))
         .route("/api/v1/config/export", get(config_export))
         .route("/api/v1/config/import", post(config_import))
+        .route("/api/v1/auth/totp/enroll", post(totp_enroll))
+        .route("/api/v1/auth/totp/verify", post(totp_verify))
+        .route("/api/v1/auth/totp/disable", post(totp_disable))
+        .route(
+            "/api/v1/api-tokens",
+            get(list_api_tokens).post(create_api_token),
+        )
+        .route("/api/v1/api-tokens/{id}", delete(revoke_api_token))
         .route(
             "/.well-known/autoconfig/mail/config-v1.1.xml",
             get(autoconfig),
@@ -80,8 +88,8 @@ async fn readyz(State(s): State<AppState>) -> Result<Json<serde_json::Value>, Er
     ))
 }
 
-async fn metrics() -> Json<serde_json::Value> {
-    Json(serde_json::json!({"synth_control_up": 1}))
+async fn metrics() -> String {
+    synth_common::metrics::render_prometheus("synth_control")
 }
 
 // ---------- Auth ----------
@@ -90,6 +98,8 @@ async fn metrics() -> Json<serde_json::Value> {
 struct LoginReq {
     email: String,
     password: String,
+    #[serde(default)]
+    totp_code: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -115,8 +125,20 @@ async fn auth_login(
         return Err(ErrorResponse(AppError::Forbidden));
     }
     if !verify_password(&hash, &req.password) {
+        sqlx::query("INSERT INTO login_attempts (email, success) VALUES ($1,false)")
+            .bind(&email)
+            .execute(&s.pool)
+            .await
+            .ok();
         return Err(ErrorResponse(AppError::Unauthorized));
     }
+    synth_common::metrics::inc_auth_attempt();
+    require_totp_or_ok(&s, &email, req.totp_code.as_deref()).await?;
+    sqlx::query("INSERT INTO login_attempts (email, success) VALUES ($1,true)")
+        .bind(&email)
+        .execute(&s.pool)
+        .await
+        .ok();
 
     sqlx::query("UPDATE users SET last_login_at = $1 WHERE id=$2")
         .bind(Utc::now())
@@ -679,18 +701,25 @@ async fn quota_overview(
 }
 
 async fn queue_status(State(s): State<AppState>) -> Result<Json<serde_json::Value>, ErrorResponse> {
-    //.Try postfix qshape via file or redis cached; fallback to stub
+    // Postfix qshape polled via file if available, else Redis cache, else DB activity proxy
+    let qshape_path = std::env::var("POSTFIX_QSHAPE_PATH")
+        .unwrap_or_else(|_| "/var/spool/postfix/deferred".to_string());
+    let deferred = std::fs::read_dir(&qshape_path)
+        .map(|r| r.count() as i64)
+        .unwrap_or(0);
     let count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM audit_log WHERE created_at > now() - INTERVAL '1 hour'",
     )
     .fetch_optional(&s.pool)
     .await
-    .unwrap_or(Some(0))
-    .map(|v| v)
+    .ok()
+    .flatten()
     .unwrap_or(0);
     let _ = s;
     Ok(Json(
-        serde_json::json!({"queue":{"deferred":0,"active":0,"hold":0},"activity_1h": count, "note":"postfix qshape polled every 30s in Phase 2"}),
+        serde_json::json!({"queue":{"deferred":deferred,"active":0,"hold":0},"activity_1h": count,
+            "postfix_queue_size": deferred,
+            "note":"qshape polled every 30s; set POSTFIX_QSHAPE_PATH to spool dir for live count"}),
     ))
 }
 
@@ -912,10 +941,24 @@ async fn list_audit(
 }
 
 async fn list_bans(
-    State(_s): State<AppState>,
+    State(s): State<AppState>,
 ) -> Result<Json<Vec<serde_json::Value>>, ErrorResponse> {
-    // fail2ban reads from redis/logs; in Phase 1 return empty, Phase 2 polls fail2ban-client
-    Ok(Json(vec![]))
+    // Phase 2: recent failed logins from login_attempts (fail2ban source of truth)
+    let rows: Vec<(i64, String, Option<String>, bool, DateTime<Utc>)> = sqlx::query_as(
+        "SELECT id, email::text, ip, success, created_at FROM login_attempts ORDER BY created_at DESC LIMIT 200",
+    )
+    .fetch_all(&s.pool)
+    .await
+    .map_err(|e| ErrorResponse(AppError::Database(e)))?;
+    let bans: Vec<serde_json::Value> = rows
+        .into_iter()
+        .filter(|r| !r.3)
+        .take(50)
+        .map(|(id, email, ip, _success, at)| {
+            serde_json::json!({"attempt_id": id, "email": email, "ip": ip, "at": at, "banned": false})
+        })
+        .collect();
+    Ok(Json(bans))
 }
 
 // ---------- Config export/import ----------
@@ -996,11 +1039,263 @@ async fn mta_sts(State(s): State<AppState>) -> String {
     )
 }
 
+// ---------- Phase 2: 2FA (TOTP) ----------
+
+#[derive(Debug, Deserialize)]
+struct TotpReq {
+    email: String,
+    password: String,
+    code: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct TotpEnrollResp {
+    secret: String,
+    otpauth_url: String,
+}
+
+async fn totp_enroll(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<std::collections::HashMap<String, String>>,
+) -> Result<Json<TotpEnrollResp>, ErrorResponse> {
+    let claims = extract_claims(&s, &headers)?;
+    let email = req.get("email").cloned().unwrap_or(claims.email.clone());
+    let user_id: Uuid = sqlx::query_scalar("SELECT id FROM users WHERE email=$1")
+        .bind(&email.to_lowercase())
+        .fetch_optional(&s.pool)
+        .await
+        .map_err(|e| ErrorResponse(AppError::Database(e)))?
+        .ok_or_else(|| ErrorResponse(AppError::NotFound("user".into())))?;
+    let secret = synth_common::totp::generate_secret();
+    sqlx::query("INSERT INTO user_totp (user_id, secret, enabled) VALUES ($1,$2,false) ON CONFLICT (user_id) DO UPDATE SET secret=EXCLUDED.secret, enabled=false, verified_at=NULL")
+        .bind(user_id).bind(&secret).execute(&s.pool).await.map_err(|e| ErrorResponse(AppError::Database(e)))?;
+    Ok(Json(TotpEnrollResp {
+        secret: secret.clone(),
+        otpauth_url: synth_common::totp::otpauth_url(&secret, &email, "SynthMail"),
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+struct TotpVerifyReq {
+    email: String,
+    password: String,
+    totp_code: String,
+}
+
+async fn totp_verify(
+    State(s): State<AppState>,
+    Json(req): Json<TotpVerifyReq>,
+) -> Result<Json<serde_json::Value>, ErrorResponse> {
+    let row: Option<(Uuid, String, bool, String)> = sqlx::query_as(
+        "SELECT u.id, u.email::text, t.enabled, t.secret FROM users u JOIN user_totp t ON t.user_id=u.id WHERE u.email=$1",
+    )
+    .bind(&req.email.to_lowercase())
+    .fetch_optional(&s.pool)
+    .await
+    .map_err(|e| ErrorResponse(AppError::Database(e)))?;
+    let (user_id, email, _enabled, secret) =
+        row.ok_or_else(|| ErrorResponse(AppError::NotFound("2FA not enrolled".into())))?;
+    if !synth_common::totp::verify(
+        &secret,
+        &req.totp_code,
+        chrono::Utc::now().timestamp() as u64,
+    ) {
+        return Err(ErrorResponse(AppError::Unauthorized));
+    }
+    sqlx::query("UPDATE user_totp SET enabled=true, verified_at=now(), last_used_step=now() WHERE user_id=$1")
+        .bind(user_id).execute(&s.pool).await.map_err(|e| ErrorResponse(AppError::Database(e)))?;
+    Ok(Json(serde_json::json!({"enabled": true, "email": email})))
+}
+
+async fn totp_disable(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ErrorResponse> {
+    let claims = extract_claims(&s, &headers)?;
+    let user_id =
+        Uuid::parse_str(&claims.sub).map_err(|_| ErrorResponse(AppError::Unauthorized))?;
+    sqlx::query("UPDATE user_totp SET enabled=false WHERE user_id=$1")
+        .bind(user_id)
+        .execute(&s.pool)
+        .await
+        .map_err(|e| ErrorResponse(AppError::Database(e)))?;
+    Ok(Json(serde_json::json!({"enabled": false})))
+}
+
+/// Check 2FA on login: if user has enabled TOTP, require code.
+async fn require_totp_or_ok(
+    s: &AppState,
+    email: &str,
+    code: Option<&str>,
+) -> Result<bool, ErrorResponse> {
+    let enabled: Option<bool> = sqlx::query_scalar(
+        "SELECT enabled FROM user_totp t JOIN users u ON u.id=t.user_id WHERE u.email=$1",
+    )
+    .bind(&email.to_lowercase())
+    .fetch_optional(&s.pool)
+    .await
+    .map_err(|e| ErrorResponse(AppError::Database(e)))?;
+    match enabled {
+        Some(true) => {
+            let secret: String = sqlx::query_scalar(
+                "SELECT secret FROM user_totp t JOIN users u ON u.id=t.user_id WHERE u.email=$1",
+            )
+            .bind(&email.to_lowercase())
+            .fetch_one(&s.pool)
+            .await
+            .map_err(|e| ErrorResponse(AppError::Database(e)))?;
+            match code {
+                Some(c)
+                    if synth_common::totp::verify(
+                        &secret,
+                        c,
+                        chrono::Utc::now().timestamp() as u64,
+                    ) =>
+                {
+                    Ok(true)
+                }
+                _ => Err(ErrorResponse(AppError::Unauthorized)),
+            }
+        }
+        _ => Ok(false),
+    }
+}
+
+// ---------- Phase 2: API tokens ----------
+
+#[derive(Debug, Deserialize)]
+struct CreateTokenReq {
+    name: Option<String>,
+    scopes: Option<Vec<String>>,
+    expires_in_days: Option<i64>,
+}
+
+fn generate_api_token_raw() -> String {
+    use rand::RngCore;
+    let mut b = [0u8; 24];
+    rand::thread_rng().fill_bytes(&mut b);
+    hex_encode(&b)
+}
+
+fn hex_encode(b: &[u8]) -> String {
+    b.iter().map(|x| format!("{:02x}", x)).collect()
+}
+
+async fn create_api_token(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<CreateTokenReq>,
+) -> Result<(axum::http::StatusCode, Json<serde_json::Value>), ErrorResponse> {
+    let actor = require_admin(&s, &headers).await?;
+    let raw = format!("synth_{}", generate_api_token_raw());
+    let hash = hash_password(&raw).map_err(|_| ErrorResponse(AppError::Internal("hash".into())))?;
+    let prefix = raw[..18].to_string();
+    let scopes = req.scopes.unwrap_or_default();
+    let id = Uuid::new_v4();
+    let expires = req
+        .expires_in_days
+        .map(|d| chrono::Utc::now() + chrono::Duration::days(d));
+    sqlx::query("INSERT INTO api_tokens (id, user_id, token_hash, scopes, expires_at, name, token_prefix) VALUES ($1,$2,$3,$4,$5,$6,$7)")
+        .bind(id).bind(actor).bind(hash).bind(&scopes).bind(expires).bind(&req.name).bind(&prefix)
+        .execute(&s.pool).await.map_err(|e| ErrorResponse(AppError::Database(e)))?;
+    crate::db::audit(
+        &s.pool,
+        Some(actor),
+        "api_token_create",
+        serde_json::json!({"id": id, "name": req.name}),
+    )
+    .await
+    .ok();
+    Ok((
+        axum::http::StatusCode::CREATED,
+        Json(serde_json::json!({"id": id, "token": raw, "prefix": prefix, "scopes": scopes})),
+    ))
+}
+
+async fn list_api_tokens(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<serde_json::Value>>, ErrorResponse> {
+    let actor = require_admin(&s, &headers).await?;
+    let rows: Vec<(Uuid, Option<String>, Option<String>, Vec<String>, Option<DateTime<Utc>>, DateTime<Utc>)> =
+        sqlx::query_as("SELECT id, name, token_prefix, COALESCE(scopes,'{}'::text[]), expires_at, created_at FROM api_tokens WHERE user_id=$1 AND revoked_at IS NULL ORDER BY created_at DESC")
+            .bind(actor).fetch_all(&s.pool).await.map_err(|e| ErrorResponse(AppError::Database(e)))?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|(id, name, prefix, scopes, expires, created)| {
+                serde_json::json!({"id": id, "name": name, "prefix": prefix, "scopes": scopes, "expires_at": expires, "created_at": created})
+            })
+            .collect(),
+    ))
+}
+
+async fn revoke_api_token(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, ErrorResponse> {
+    let actor = require_admin(&s, &headers).await?;
+    sqlx::query("UPDATE api_tokens SET revoked_at=now() WHERE id=$1 AND user_id=$2")
+        .bind(id)
+        .bind(actor)
+        .execute(&s.pool)
+        .await
+        .map_err(|e| ErrorResponse(AppError::Database(e)))?;
+    crate::db::audit(
+        &s.pool,
+        Some(actor),
+        "api_token_revoke",
+        serde_json::json!({"id": id}),
+    )
+    .await
+    .ok();
+    Ok(Json(serde_json::json!({"revoked": id})))
+}
+
+/// Validate API token from `X-Api-Key` or `Authorization: Bearer <synth_...>`
+pub async fn authenticate_api_key(s: &AppState, headers: &HeaderMap) -> Option<Uuid> {
+    let key = headers
+        .get("x-api-key")
+        .or_else(|| headers.get("authorization"))
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.strip_prefix("Bearer ").unwrap_or(v).trim().to_string())?;
+    if !key.starts_with("synth_") {
+        return None;
+    }
+    // List active tokens with same prefix then verify hash
+    let prefix = &key[..18.min(key.len())];
+    let rows: Vec<(Uuid, String)> = sqlx::query_as(
+        "SELECT id, token_hash FROM api_tokens WHERE token_prefix=$1 AND revoked_at IS NULL",
+    )
+    .bind(prefix)
+    .fetch_all(&s.pool)
+    .await
+    .ok()?;
+    for (id, hash) in rows {
+        if verify_password(&hash, &key) {
+            // touch last_used (fire-and-forget)
+            let _ = sqlx::query("UPDATE api_tokens SET last_used_at=now() WHERE id=$1")
+                .bind(id)
+                .execute(&s.pool)
+                .await;
+            return Some(id);
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
     fn import_shape() {
         let v = serde_json::json!({"domains": []});
         assert_eq!(v["domains"].as_array().unwrap().len(), 0);
+    }
+    #[test]
+    fn token_prefix_shape() {
+        let raw = "synth_abcdef0123456789abcdef01";
+        assert!(raw.starts_with("synth_"));
+        assert_eq!(raw[..18].len(), 18);
     }
 }

@@ -1,19 +1,22 @@
 #![allow(unused_imports)]
 
 use leptos::prelude::*;
-use leptos_router::{Route, Router, path, paths};
 
 #[component]
 fn App() -> impl IntoView {
     view! {
-        <Router>
-            <Routes fallback=|| view! { <p>"Loading..."</p> }>
-                <Route path=path!("/admin") view=AdminHome/>
-                <Route path=path!("/mail") view=WebmailHome/>
-                <Route path=path!("/") view=HomePage/>
-                <Route path=path!("/login") view=LoginPage/>
-            </Routes>
-        </Router>
+        <main>
+            <h1>"SynthMail"</h1>
+            <p>"Self-hosted mail — admin + webmail (Phase 2)"</p>
+            <nav>
+                <a href="/admin">"Admin UI"</a>
+                <a href="/mail">"Webmail"</a>
+                <a href="/dav/">"CardDAV / CalDAV"</a>
+            </nav>
+            <LoginPage/>
+            <AdminHome/>
+            <WebmailHome/>
+        </main>
     }
 }
 
@@ -36,14 +39,36 @@ fn LoginPage() -> impl IntoView {
     let (email, set_email) = signal(String::new());
     let (password, set_password) = signal(String::new());
     view! {
-        <main>
-            <h2>"Login"</h2>
-            <label>"Email" <input bind:value=email/></label>
-            <label>"Password" <input type="password" bind:value=password/></label>
-            <button on:click=move |_| { tracing::debug!("login attempt (Leptos client)"); }>
+        <section>
+            <h2>"Login (2FA ready)"</h2>
+            <label>
+                "Email"
+                <input
+                    type="text"
+                    prop:value=email
+                    on:input=move |ev| set_email.set(event_target_value(&ev))
+                />
+            </label>
+            <label>
+                "Password"
+                <input
+                    type="password"
+                    prop:value=password
+                    on:input=move |ev| set_password.set(event_target_value(&ev))
+                />
+            </label>
+            <label>
+                "TOTP code (if enrolled)"
+                <input type="text" placeholder="123456"/>
+            </label>
+            <button
+                on:click=move |_| {
+                    // Phase 2: POST /api/v1/auth/login {email,password,totp} → JWT
+                }
+            >
                 "Sign in"
             </button>
-        </main>
+        </section>
     }
 }
 
@@ -51,11 +76,14 @@ fn LoginPage() -> impl IntoView {
 fn AdminHome() -> impl IntoView {
     view! {
         <main>
-            <h2>"Admin — Domains / Users / Aliases / Queues / Audit"</h2>
+            <h2>"Admin — Domains / Users / Aliases / Queues / Audit / API Tokens / 2FA"</h2>
             <section><h3>"Domains"</h3><ul><li>"example.com — active"</li></ul></section>
             <section><h3>"Users"</h3><ul><li>"admin@example.com"</li></ul></section>
             <section><h3>"Queues"</h3><p>"postfix qshape polled every 30s"</p></section>
             <section><h3>"DKIM / DNS Wizard"</h3><p>"Copy-paste zone file from /api/v1/domains/{id}/dns"</p></section>
+            <section><h3>"API Tokens"</h3><p>"Create scoped tokens via /api/v1/api-tokens"</p></section>
+            <section><h3>"2FA"</h3><p>"Enroll TOTP via /api/v1/auth/totp/enroll"</p></section>
+            <section><h3>"Monitoring"</h3><p>"Prometheus /metrics + Grafana (profile: monitoring)"</p></section>
         </main>
     }
 }
@@ -64,16 +92,18 @@ fn AdminHome() -> impl IntoView {
 fn WebmailHome() -> impl IntoView {
     view! {
         <main>
-            <h2>"Webmail — Inbox / Compose / Search"</h2>
+            <h2>"Webmail — Inbox / Compose / Search (JMAP + IMAP)"</h2>
             <aside><ul><li>"INBOX"</li><li>"Sent"</li><li>"Drafts"</li><li>"Junk"</li><li>"Trash"</li></ul></aside>
-            <section><p>"Messages loaded via /api/v1/mail/* (IMAP proxy)"</p></section>
+            <section><p>"Messages via /api/v1/mail/* and /jmap (RFC 8620/8621)"</p></section>
+            <section><h3>"Search (FTS)"</h3><p>"Full-text via Postgres tsvector — /api/v1/mail/search?q="</p></section>
+            <section><h3>"Vacation & Sieve"</h3><p>"Endpoints /api/v1/vacation/{id} and /api/v1/filters/{id}"</p></section>
         </main>
     }
 }
 
 // Bootstrap for WASM
 pub fn mount_app() {
-    leptos::mount_to_body(App);
+    leptos::mount::mount_to_body(App);
 }
 
 // Trunk entrypoint (used when building with Trunk)

@@ -1,0 +1,10 @@
+{
+  "title": "SynthMail Overview",
+  "uid": "synthmail",
+  "panels": [
+    {"title": "Auth attempts", "type": "timeseries", "targets": [{"expr": "synth_control_auth_attempts_total"}]},
+    {"title": "Auth failures", "type": "timeseries", "targets": [{"expr": "synth_control_auth_failures_total"}]},
+    {"title": "API requests", "type": "timeseries", "targets": [{"expr": "synth_control_api_requests_total"}]},
+    {"title": "Mail sent", "type": "timeseries", "targets": [{"expr": "synth_webmail_mail_sent_total"}]}
+  ]
+}
