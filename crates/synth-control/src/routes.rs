@@ -214,6 +214,18 @@ fn extract_claims(
 }
 
 async fn require_admin(s: &AppState, headers: &HeaderMap) -> Result<Uuid, ErrorResponse> {
+    // API-token path first (Bearer synth_... / X-Api-Key), then session JWT.
+    if let Some(user_id) = authenticate_api_key(s, headers).await {
+        let kind: Option<String> = sqlx::query_scalar("SELECT kind FROM users WHERE id=$1")
+            .bind(user_id)
+            .fetch_optional(&s.pool)
+            .await
+            .map_err(|e| ErrorResponse(AppError::Database(e)))?;
+        return match kind.as_deref() {
+            Some("admin") | Some("superadmin") => Ok(user_id),
+            _ => Err(ErrorResponse(AppError::Forbidden)),
+        };
+    }
     let claims = extract_claims(s, headers)?;
     // Check DB kind
     let kind: Option<String> = sqlx::query_scalar("SELECT kind FROM users WHERE id=$1")
@@ -1440,6 +1452,7 @@ async fn revoke_api_token(
 }
 
 /// Validate API token from `X-Api-Key` or `Authorization: Bearer <synth_...>`
+/// Returns the owning user id.
 pub async fn authenticate_api_key(s: &AppState, headers: &HeaderMap) -> Option<Uuid> {
     let key = headers
         .get("x-api-key")
@@ -1451,21 +1464,21 @@ pub async fn authenticate_api_key(s: &AppState, headers: &HeaderMap) -> Option<U
     }
     // List active tokens with same prefix then verify hash
     let prefix = &key[..18.min(key.len())];
-    let rows: Vec<(Uuid, String)> = sqlx::query_as(
-        "SELECT id, token_hash FROM api_tokens WHERE token_prefix=$1 AND revoked_at IS NULL",
+    let rows: Vec<(Uuid, Option<Uuid>, String)> = sqlx::query_as(
+        "SELECT id, user_id, token_hash FROM api_tokens WHERE token_prefix=$1 AND revoked_at IS NULL",
     )
     .bind(prefix)
     .fetch_all(&s.pool)
     .await
     .ok()?;
-    for (id, hash) in rows {
+    for (id, user_id, hash) in rows {
         if verify_password(&hash, &key) {
             // touch last_used (fire-and-forget)
             let _ = sqlx::query("UPDATE api_tokens SET last_used_at=now() WHERE id=$1")
                 .bind(id)
                 .execute(&s.pool)
                 .await;
-            return Some(id);
+            return user_id;
         }
     }
     None
