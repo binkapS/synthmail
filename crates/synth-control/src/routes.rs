@@ -1325,9 +1325,20 @@ async fn quota_overview(
     headers: HeaderMap,
 ) -> Result<Json<Vec<serde_json::Value>>, ErrorResponse> {
     require_admin_principal(&s, &headers, false).await?;
-    let rows: Vec<(String, i32, i32, f64)> = sqlx::query_as("SELECT email::text, quota_mb, used_mb, CASE WHEN quota_mb>0 THEN (used_mb*100.0/quota_mb) ELSE 0 END FROM users ORDER BY 4 DESC LIMIT 100")
-        .fetch_all(&s.pool).await.map_err(|e| ErrorResponse(AppError::Database(e)))?;
-    Ok(Json(rows.into_iter().map(|(email, quota, used, pct)| serde_json::json!({"email": email, "quota_mb": quota, "used_mb": used, "pct": pct})).collect()))
+    let rows: Vec<(String, i32, i32, f64)> =
+        sqlx::query_as(
+            "SELECT email::text, quota_mb, used_mb,
+                    CASE WHEN quota_mb>0 THEN (used_mb*100.0/quota_mb)::float8 ELSE 0::float8 END
+                 FROM users ORDER BY 4 DESC LIMIT 100",
+        )
+        .fetch_all(&s.pool)
+        .await
+        .map_err(|e| ErrorResponse(AppError::Database(e)))?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|(email, quota, used, pct)| serde_json::json!({"email": email, "quota_mb": quota, "used_mb": used, "pct": pct}))
+            .collect(),
+    ))
 }
 
 async fn queue_status(
