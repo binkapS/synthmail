@@ -24,7 +24,7 @@ Self-hosted mail server with a Rust control plane. Postfix, Dovecot, and Rspamd 
 | Encrypted secrets at rest | ✅ | `ENCRYPTION_KEY` (64 hex) → AES-256-GCM via `synth-common::secrets`; DKIM private keys + TOTP secrets encrypted |
 | DKIM (`synth-dkim`) | ✅ | RSA-2048/Ed25519 (real PKCS#8); keys encrypted in DB **and** synced to the shared OpenDKIM volume (`KeyTable`/`SigningTable`); `MinimumKeyBits 2048` |
 | Webmail backend (`synth-webmail`) | ✅ Authenticated mail access | `authenticate_user` enforced everywhere; FTS indexer runs every 60 s; folders/list/get/drafts/delete read the shared Maildir; send via Postfix on mailnet; JMAP session + Mailbox/Email query/get/set |
-| Admin UI (`synth-ui`, Leptos) | ✅ Built + served | `docker/synth-ui/Dockerfile` (Trunk WASM build) → `synth-ui` service behind edge `/admin/`; login button posts to the real API |
+| Admin UI (`synth-ui`, Svelte 5) | ✅ Built + served | `docker/synth-ui/Dockerfile` (Node/Vite build) → `synth-ui` service behind edge `/admin/`; login posts to the real API |
 | SMTP shim (`synth-smtp`) | 🧪 Experimental | Loopback default, max 100 concurrent connections, size/recipient/line limits; still unauthenticated (no AUTH/STARTTLS) — trusted networks only |
 | Monitoring / watchdog | ✅ Partial | `/metrics`, health polling, deduped alerts; `queue_depth` gauge; ACME challenge endpoint validates tokens before FS access |
 | Backup (`backup` profile) | ✅ | `postgres15-client + tar + rclone` image; `pg_dump` + Maildir tar + `sha256sum` + retention prune + optional `rclone sync` |
@@ -108,7 +108,8 @@ crates/
   synth-dkim/      # DKIM RSA-2048 / Ed25519 key generation
   synth-smtp/      # Experimental ESMTP shim with Redis queue (loopback :2525)
   synth-migrate/   # mailcow / PostfixAdmin / CSV import CLI
-  synth-ui/        # Leptos CSR SPA (Trunk WASM, served by synth-ui/nginx)
+  ui/              # Svelte 5 SPA (Vite, served by synth-ui/nginx)
+  synth-ui/        # Legacy Leptos sources (retired from workspace)
   synth-bench/     # Latency / throughput benchmark harness
 ```
 
