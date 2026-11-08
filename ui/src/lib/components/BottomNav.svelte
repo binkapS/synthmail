@@ -1,9 +1,10 @@
 <script lang="ts">
   import { page } from "$app/state";
   import * as Api from "$lib/api";
+  import { auth } from "$lib/stores/auth.svelte";
   const path = $derived(page.url.pathname);
   const active = (p: string) => path === p;
-  const authed = $derived(!!Api.getToken());
+  const authed = $derived(!!auth.token);
   let isAdmin = $state(false);
   $effect(() => {
     if (!authed) { isAdmin = false; return; }

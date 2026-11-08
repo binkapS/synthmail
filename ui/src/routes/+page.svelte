@@ -18,6 +18,17 @@
     if (!Api.getToken()) { goto("/login"); return; }
     let cancelled = false;
     (async () => {
+      // Admin-only landing: bounce regular users to webmail.
+      try {
+        const m: any = await Api.me();
+        if (m.kind !== "admin" && m.kind !== "superadmin") {
+          goto("/mail");
+          return;
+        }
+      } catch {
+        goto("/login");
+        return;
+      }
       let anyFail = false;
       try { domains = (await Api.listDomains()).length; } catch { anyFail = true; }
       try { users = (await Api.listUsers()).length; } catch { anyFail = true; }

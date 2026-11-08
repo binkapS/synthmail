@@ -1,11 +1,12 @@
 <script lang="ts">
   import { page } from "$app/state";
   import * as Api from "$lib/api";
+  import { auth } from "$lib/stores/auth.svelte";
   import LogoutButton from "$lib/ui/LogoutButton.svelte";
 
   const path = $derived(page.url.pathname);
   const isActive = (p: string) => path === p;
-  const token = $derived(Api.getToken());
+  const token = $derived(auth.token);
   let isAdmin = $state(false);
   $effect(() => {
     if (!token) { isAdmin = false; return; }
