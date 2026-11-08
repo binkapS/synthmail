@@ -32,9 +32,10 @@ fn App() -> impl IntoView {
         }
     });
 
-    let auth_token: RwSignal<Option<String>> = RwSignal::new(None);
+    let auth_token = RwSignal::new(api::get_token());
     provide_context(theme);
     provide_context(auth_token);
+    provide_context(AppState { auth_token });
 
     view! {
         <Router>
@@ -44,8 +45,8 @@ fn App() -> impl IntoView {
                     <Routes fallback=NotFound>
                         <Route path=path!("/") view=Home />
                         <Route path=path!("/login") view=LoginPage />
-                        <Route path=path!("/admin") view=AdminHome />
-                        <Route path=path!("/mail") view=WebmailHome />
+                        <Route path=path!("/admin") view=move || view! { <AuthGuard><AdminHome/></AuthGuard> }.into_any() />
+                        <Route path=path!("/mail") view=move || view! { <AuthGuard><WebmailHome/></AuthGuard> }.into_any() />
                     </Routes>
                 </main>
                 <footer class="footer">
@@ -54,6 +55,55 @@ fn App() -> impl IntoView {
                 </footer>
             </div>
         </Router>
+    }
+}
+
+#[derive(Clone, Copy)]
+#[allow(dead_code)]
+struct AppState {
+    auth_token: RwSignal<Option<String>>,
+}
+
+/// Router-level auth guard: unauthenticated users are sent to /login
+/// before the protected view renders. Admin-ness is still enforced
+/// inside AdminHome (kind check via /auth/me).
+#[component]
+fn AuthGuard(children: Children) -> impl IntoView {
+    let nav = leptos_router::hooks::use_navigate();
+    let ok = RwSignal::new(api::get_token().is_some());
+    Effect::new(move |_| {
+        if !ok.get() {
+            nav("/login", Default::default());
+        }
+    });
+    view! { <>{children()}</> }
+}
+
+/// Topbar logout: POSTs to the backend, clears token everywhere, routes
+/// to /login.
+#[component]
+fn LogoutNavButton() -> impl IntoView {
+    let nav = leptos_router::hooks::use_navigate();
+    let (pending, set_pending) = signal(false);
+    let on_click = move |_| {
+        let nav = nav.clone();
+        set_pending.set(true);
+        leptos::task::spawn_local(async move {
+            let _ = api::logout().await;
+            api::clear_token();
+            nav("/login", Default::default());
+        });
+    };
+    view! {
+        <button
+            class="icon-btn"
+            type="button"
+            aria-label="Log out"
+            disabled=move || pending.get()
+            on:click=on_click
+        >
+            {move || if pending.get() { "…" } else { "⏻" }}
+        </button>
     }
 }
 
@@ -81,6 +131,9 @@ fn TopBar(theme: ThemeSignal) -> impl IntoView {
                 <a class="nav-link" href="/dav/" target="_blank" rel="noopener">"CardDAV/CalDAV"</a>
             </nav>
             <div class="topbar-actions">
+                {move || api::get_token().is_some().then(|| view! {
+                    <LogoutNavButton/>
+                })}
                 <button class="icon-btn" type="button" on:click=toggle_theme aria-label="Toggle color theme">
                     {move || if theme.get() == "dark" { "🌙" } else { "☀️" } }
                 </button>
