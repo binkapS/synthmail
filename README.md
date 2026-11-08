@@ -224,9 +224,27 @@ Images are built from `docker/<service>/Dockerfile`. The UI image installs
 dependencies in a Node 22 stage and serves the static bundle via nginx 1.27 with
 SPA fallback and reverse proxy rules for `/api/` and `/jmap`.
 
+Build and publish all images (no Rust/Node toolchain required for the
+consuming host) with:
+
 ```bash
-docker compose build
-docker compose config
+# local single-arch build
+./scripts/build-images.sh
+
+# multi-arch publish
+REGISTRY=ghcr.io/yourorg TAG=1.0.0 ./scripts/build-images.sh --push
+```
+
+System administrators can then deploy with a pinned tag and pull only:
+
+```bash
+REGISTRY=ghcr.io/yourorg TAG=1.0.0 docker compose pull
+docker compose up -d
+```
+
+```bash
+docker compose build   # per-service local builds
+docker compose config # validate compose
 ```
 
 ## Documentation map
