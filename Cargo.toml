@@ -45,3 +45,14 @@ hmac = "0.12"
 sha1 = "0.10"
 base64 = "0.22"
 aes-gcm = "0.10"
+
+# WASM codegen is the slow part of `trunk build --release` (synth-ui pulls
+# in all of leptos as one crate). opt-level="s" is several times faster
+# through rustc than opt-level=3 and yields a smaller bundle — the right
+# trade for a CSR SPA. Incremental keeps rebuilds after a CSS-only edit
+# near-instant (paired with the BuildKit cache mounts in
+# docker/synth-ui/Dockerfile). Must live at the workspace root: profiles
+# in member manifests are ignored.
+[profile.release.package.synth-ui]
+opt-level = "s"
+incremental = true

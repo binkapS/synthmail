@@ -73,7 +73,7 @@ fn App() -> impl IntoView {
                 <main id="main" class="main">
                     <Routes fallback=NotFound>
                         <Route path=path!("/") view=Home />
-                        <Route path=path!("/login") view=LoginPage />
+                        <Route path=path!("/login") view=move || view! { <GuestGuard><LoginPage/></GuestGuard> }.into_any() />
                         <Route path=path!("/admin") view=move || view! { <AuthGuard><AdminHome/></AuthGuard> }.into_any() />
                         <Route path=path!("/mail") view=move || view! { <AuthGuard><WebmailHome/></AuthGuard> }.into_any() />
                     </Routes>
@@ -141,6 +141,34 @@ fn BottomNav() -> impl IntoView {
             </a>
         </nav>
     }
+}
+
+/// Guest-only mirror of [`AuthGuard`]: an already-authenticated user who
+/// visits `/login` is bounced out before the form is usable — no
+/// re-login over a live session. The token is verified via `GET
+/// /auth/me`; only a successful check redirects (admins to `/admin`,
+/// everyone else to `/mail`). A stale/expired token or a transient
+/// network failure leaves the user on `/login` so they can sign in
+/// fresh — deliberately *not* cleared here, since an `Err(String)`
+/// cannot distinguish 401 from offline.
+#[component]
+fn GuestGuard(children: Children) -> impl IntoView {
+    let nav = leptos_router::hooks::use_navigate();
+    Effect::new(move |_| {
+        if api::get_token().is_some() {
+            let nav = nav.clone();
+            leptos::task::spawn_local(async move {
+                if let Ok(me) = api::me().await {
+                    if me.kind == "admin" || me.kind == "superadmin" {
+                        nav("/admin", Default::default());
+                    } else {
+                        nav("/mail", Default::default());
+                    }
+                }
+            });
+        }
+    });
+    view! { <>{children()}</> }
 }
 
 /// Router-level auth guard: unauthenticated users are sent to /login
