@@ -20,7 +20,7 @@
 //!
 //! Only the token helpers touch the DOM/LS APIs. Everything else is pure
 //! (URL building, error parsing, quota normalization) or wasm network code.
-//! The pure helpers are covered by `#[cfg(test)]` unit tests, which run on
+//! The pure helpers are covered by `//! The pure helpers are covered by `#[cfg(test)]` unit tests, which run on
 //! the host target via `cargo test -p synth-ui --offline`.
 
 use serde::de::DeserializeOwned;
@@ -79,6 +79,16 @@ fn get_local_storage() -> Option<JsLocalStorage> {
 /// Read the session token from `localStorage`, or `None` when absent,
 /// empty, or unavailable.
 pub fn get_token() -> Option<String> {
+    // In-memory fallback first: browsers with localStorage blocked
+    // (private mode, storage policies) still keep the session alive for
+    // the tab lifetime via `MEM_TOKEN`, so auth gating can't misfire.
+    if let Some(t) = MEM_TOKEN
+        .get()
+        .and_then(|m| m.lock().ok())
+        .and_then(|g| g.clone())
+    {
+        return Some(t);
+    }
     let storage = get_local_storage()?;
     let tok = storage.get_item(TOKEN_KEY).ok()?;
     // localStorage.getItem returns null when missing (None) — empty-string
@@ -89,8 +99,19 @@ pub fn get_token() -> Option<String> {
     }
 }
 
+static MEM_TOKEN: std::sync::OnceLock<std::sync::Mutex<Option<String>>> =
+    std::sync::OnceLock::new();
+
+fn mem_set(token: Option<String>) {
+    let m = MEM_TOKEN.get_or_init(|| std::sync::Mutex::new(None));
+    if let Ok(mut g) = m.lock() {
+        *g = token;
+    }
+}
+
 /// Store the session token in `localStorage`. No-op if storage is absent.
 pub fn set_token(token: &str) {
+    mem_set(Some(token.to_string()));
     if let Some(storage) = get_local_storage() {
         let _ = storage.set_item(TOKEN_KEY, token);
     }
@@ -98,6 +119,7 @@ pub fn set_token(token: &str) {
 
 /// Remove the session token from `localStorage`. No-op if storage is absent.
 pub fn clear_token() {
+    mem_set(None);
     if let Some(storage) = get_local_storage() {
         let _ = storage.remove_item(TOKEN_KEY);
     }
@@ -1200,6 +1222,102 @@ pub async fn jmap_request(method_calls: Value) -> Result<Value, String> {
 // Tests (pure helpers only — host-safe)
 // ---------------------------------------------------------------------------
 
+// ---------- Compatibility shims for `pages` (rename + arg-shape adapters) ----------
+
+pub async fn tokens_list() -> Result<Vec<TokenRow>, String> {
+    list_api_tokens().await
+}
+
+pub async fn tokens_create(
+    name: &str,
+    scopes: Vec<String>,
+    expires_days: i64,
+) -> Result<CreatedToken, String> {
+    create_api_token(&CreateTokenReq {
+        name: Some(name.to_string()),
+        scopes: Some(scopes),
+        expires_in_days: if expires_days > 0 {
+            Some(expires_days)
+        } else {
+            None
+        },
+    })
+    .await
+}
+
+pub async fn tokens_revoke(id: &str) -> Result<Value, String> {
+    revoke_api_token(id).await
+}
+
+pub async fn push_list() -> Result<Vec<PushSub>, String> {
+    list_push().await
+}
+
+pub async fn push_create(endpoint: &str, p256dh: &str, auth: &str) -> Result<Value, String> {
+    create_push(&PushSubReq {
+        endpoint: endpoint.to_string(),
+        p256dh: p256dh.to_string(),
+        auth: auth.to_string(),
+    })
+    .await
+}
+
+pub async fn push_delete(id: &str) -> Result<Value, String> {
+    delete_push(id).await
+}
+
+pub async fn audit(limit: Option<u32>) -> Result<Vec<Value>, String> {
+    list_audit(limit).await
+}
+
+pub async fn bans() -> Result<Vec<Value>, String> {
+    list_bans().await
+}
+
+pub async fn filters_get(user_id: &str) -> Result<Value, String> {
+    get_filters(user_id).await
+}
+
+pub async fn filters_put(user_id: &str, sieve: &str) -> Result<Value, String> {
+    save_filters(user_id, &serde_json::json!({ "sieve": sieve })).await
+}
+
+pub async fn vacation_get(user_id: &str) -> Result<Value, String> {
+    get_vacation(user_id).await
+}
+
+pub async fn vacation_put(user_id: &str, body: serde_json::Value) -> Result<Value, String> {
+    save_vacation(user_id, &body).await
+}
+
+pub async fn config_export() -> Result<String, String> {
+    export_config().await
+}
+
+pub async fn config_import(body: serde_json::Value) -> Result<Value, String> {
+    import_config(&body).await
+}
+
+pub async fn dmarc_list() -> Result<Vec<DmarcRow>, String> {
+    list_dmarc(None).await
+}
+
+pub async fn mail_messages(folder: &str, limit: u32) -> Result<MessagesResp, String> {
+    mail_list_messages(Some(folder), Some(limit)).await
+}
+
+pub async fn mail_message(uid: u32) -> Result<MessageFull, String> {
+    mail_get_message(uid).await
+}
+
+pub async fn mail_drafts() -> Result<DraftsResp, String> {
+    mail_list_drafts().await
+}
+
+pub async fn mail_draft_delete(uid: u32) -> Result<Value, String> {
+    mail_delete_draft(uid).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1371,100 +1489,4 @@ mod tests {
         assert!(m.seen);
         assert_eq!(m.message_id.as_deref(), Some("<m1>"));
     }
-}
-
-// ---------- Compatibility shims for `pages` (rename + arg-shape adapters) ----------
-
-pub async fn tokens_list() -> Result<Vec<TokenRow>, String> {
-    list_api_tokens().await
-}
-
-pub async fn tokens_create(
-    name: &str,
-    scopes: Vec<String>,
-    expires_days: i64,
-) -> Result<CreatedToken, String> {
-    create_api_token(&CreateTokenReq {
-        name: Some(name.to_string()),
-        scopes: Some(scopes),
-        expires_in_days: if expires_days > 0 {
-            Some(expires_days)
-        } else {
-            None
-        },
-    })
-    .await
-}
-
-pub async fn tokens_revoke(id: &str) -> Result<Value, String> {
-    revoke_api_token(id).await
-}
-
-pub async fn push_list() -> Result<Vec<PushSub>, String> {
-    list_push().await
-}
-
-pub async fn push_create(endpoint: &str, p256dh: &str, auth: &str) -> Result<Value, String> {
-    create_push(&PushSubReq {
-        endpoint: endpoint.to_string(),
-        p256dh: p256dh.to_string(),
-        auth: auth.to_string(),
-    })
-    .await
-}
-
-pub async fn push_delete(id: &str) -> Result<Value, String> {
-    delete_push(id).await
-}
-
-pub async fn audit(limit: Option<u32>) -> Result<Vec<Value>, String> {
-    list_audit(limit).await
-}
-
-pub async fn bans() -> Result<Vec<Value>, String> {
-    list_bans().await
-}
-
-pub async fn filters_get(user_id: &str) -> Result<Value, String> {
-    get_filters(user_id).await
-}
-
-pub async fn filters_put(user_id: &str, sieve: &str) -> Result<Value, String> {
-    save_filters(user_id, &serde_json::json!({ "sieve": sieve })).await
-}
-
-pub async fn vacation_get(user_id: &str) -> Result<Value, String> {
-    get_vacation(user_id).await
-}
-
-pub async fn vacation_put(user_id: &str, body: serde_json::Value) -> Result<Value, String> {
-    save_vacation(user_id, &body).await
-}
-
-pub async fn config_export() -> Result<String, String> {
-    export_config().await
-}
-
-pub async fn config_import(body: serde_json::Value) -> Result<Value, String> {
-    import_config(&body).await
-}
-
-pub async fn dmarc_list() -> Result<Vec<DmarcRow>, String> {
-    list_dmarc(None).await
-}
-
-pub async fn mail_messages(folder: &str, limit: u32) -> Result<MessagesResp, String> {
-    mail_list_messages(Some(folder), Some(limit)).await
-}
-
-pub async fn mail_message(uid: u32) -> Result<MessageFull, String> {
-    mail_get_message(uid).await
-}
-
-pub async fn mail_drafts() -> Result<DraftsResp, String> {
-    mail_list_drafts().await
-}
-
-pub async fn mail_draft_delete(uid: u32) -> Result<Value, String> {
-    mail_delete_draft(uid).await
 }
