@@ -31,6 +31,7 @@
 </script>
 
 <AuthGuard>
+  <div class="space-y-6">
   <section class="relative overflow-hidden rounded-3xl border border-divider bg-gradient-to-br from-surface via-surface to-elevated p-6 sm:p-8 shadow-2xl shadow-black/30">
     <div class="absolute -top-20 -right-20 w-72 h-72 rounded-full bg-brand/20 blur-3xl pointer-events-none"></div>
     <div class="absolute bottom-0 left-1/3 w-60 h-60 rounded-full bg-info/15 blur-3xl pointer-events-none"></div>
@@ -92,4 +93,5 @@
       </div>
     {/if}
   </section>
+  </div>
 </AuthGuard>

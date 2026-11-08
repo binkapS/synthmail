@@ -17,14 +17,12 @@
   </a>
 
   <nav class="hidden md:flex items-center gap-1 ml-auto bg-elevated/60 rounded-xl p-1 border border-divider/60">
-    {#each [["/", "Home"], ["/login", "Sign in"], ["/admin", "Admin"], ["/mail", "Mail"]] as [href, label]}
-      <a
-        href={href}
-        class="px-4 py-1.5 rounded-lg text-sm font-medium transition-all {isActive(href) ? 'bg-brand text-text-primary shadow shadow-brand/30' : 'text-text-muted hover:text-text-primary'}"
-      >
-        {label}
-      </a>
-    {/each}
+    <a href="/" class="px-4 py-1.5 rounded-lg text-sm font-medium transition-all {isActive('/') ? 'bg-brand text-text-primary shadow shadow-brand/30' : 'text-text-muted hover:text-text-primary'}">Home</a>
+    <a href="/admin" class="px-4 py-1.5 rounded-lg text-sm font-medium transition-all {isActive('/admin') ? 'bg-brand text-text-primary shadow shadow-brand/30' : 'text-text-muted hover:text-text-primary'}">Admin</a>
+    <a href="/mail" class="px-4 py-1.5 rounded-lg text-sm font-medium transition-all {isActive('/mail') ? 'bg-brand text-text-primary shadow shadow-brand/30' : 'text-text-muted hover:text-text-primary'}">Mail</a>
+    {#if !token}
+      <a href="/login" class="px-4 py-1.5 rounded-lg text-sm font-medium transition-all {isActive('/login') ? 'bg-brand text-text-primary shadow shadow-brand/30' : 'text-text-muted hover:text-text-primary'}">Sign in</a>
+    {/if}
     <a href="/dav/" target="_blank" rel="noopener" class="px-4 py-1.5 rounded-lg text-sm font-medium text-text-muted hover:text-text-primary transition-all">DAV</a>
   </nav>
 
