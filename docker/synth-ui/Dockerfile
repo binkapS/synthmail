@@ -5,8 +5,11 @@
 
 # --- Stage 1: Trunk build (WASM) ---
 FROM rust:bookworm AS builder
-RUN rustup target add wasm32-unknown-unknown \
-    && cargo install trunk --locked
+RUN rustup toolchain install stable \
+    && rustup target add wasm32-unknown-unknown --toolchain stable \
+    && rustup target list --installed --toolchain stable | grep -q wasm32-unknown-unknown \
+    && cargo install trunk --locked --root /usr/local
+ENV PATH="/usr/local/bin:${PATH}"
 WORKDIR /app
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY crates crates
