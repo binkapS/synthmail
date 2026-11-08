@@ -243,7 +243,7 @@
           <div class="max-w-3xl">
             <h2 class="text-2xl font-bold mb-4 bg-gradient-to-r from-brand to-info bg-clip-text text-transparent">Compose message</h2>
             <div class="rounded-2xl border border-divider bg-appBg/40 p-5 space-y-3">
-              <Field label="From"><Input bind:value={meEmail} /></Field>
+              <Field label="From"><Input bind:value={meEmail} readonly disabled /></Field>
               <Field label="To"><Input bind:value={composeTo} placeholder="recipient@example.com" /></Field>
               <Field label="Subject"><Input bind:value={composeSubject} placeholder="Subject" /></Field>
               <Field label="Body"><Textarea bind:value={composeBody} rows={12} /></Field>
