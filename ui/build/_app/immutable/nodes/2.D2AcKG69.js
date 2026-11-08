@@ -1,1 +1,0 @@
-import{A as e,f as t,m as n}from"../chunks/fgSXusf4.js";import"../chunks/DXhJv0MC.js";var r=n(`<h1 class="p-6 text-2xl font-bold text-text-primary">SynthMail</h1> <p class="px-6 text-text-muted">Rebuild in progress.</p>`,1);function i(n){var i=r();e(2),t(n,i)}export{i as component};

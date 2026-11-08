@@ -16,5 +16,9 @@ export default defineConfig({
       })
     })
   ],
-  server: { proxy: { "/api": "http://localhost:8000", "/jmap": "http://localhost:3000" } }
+  server: { proxy: { "/api": "http://localhost:8000", "/jmap": "http://localhost:3000" } },
+  test: {
+    environment: "node",
+    include: ["tests/**/*.test.ts"]
+  }
 });
