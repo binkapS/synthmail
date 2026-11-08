@@ -1,6 +1,7 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
   import * as Api from "$lib/api";
+  import { clearAuth } from "$lib/stores/auth.svelte";
   import { Card, Spinner, EmptyState, ErrorCard, Field, Input, Button } from "$lib/ui";
 
   let me = $state<any>(null);
@@ -39,18 +40,15 @@
     err = ""; info = "";
     try {
       await Api.changePassword(curPw, newPw);
-      info = "Password changed.";
-      curPw = ""; newPw = "";
-      if (forced) {
-        try {
-          const m: any = await Api.me();
-          forced = false;
-          if (m.kind === "admin" || m.kind === "superadmin") goto("/admin");
-          else goto("/mail");
-        } catch {
-          /* noop */
-        }
-      }
+      forced = false;
+      curPw = "";
+      newPw = "";
+      // The backend increments token_version on password change, so the
+      // current session is now revoked: clear it and require re-login.
+      Api.clearToken();
+      clearAuth();
+      info = "Password changed. Please sign in again.";
+      setTimeout(() => goto("/login"), 800);
     } catch (e: any) { err = e?.message ?? String(e); }
     finally { pw_pending = false; }
   }
