@@ -6,6 +6,18 @@
   const path = $derived(page.url.pathname);
   const isActive = (p: string) => path === p;
   const token = $derived(Api.getToken());
+  let isAdmin = $state(false);
+  $effect(() => {
+    if (!token) { isAdmin = false; return; }
+    (async () => {
+      try {
+        const me = await Api.me();
+        isAdmin = me.kind === "admin" || me.kind === "superadmin";
+      } catch {
+        isAdmin = false;
+      }
+    })();
+  });
 </script>
 
 <header class="sticky top-3 z-40 flex items-center gap-3 px-4 py-2.5 rounded-2xl border border-divider/80 bg-surface/70 backdrop-blur-xl shadow-xl shadow-black/20">
@@ -18,7 +30,9 @@
 
   <nav class="hidden md:flex items-center gap-1 ml-auto bg-elevated/60 rounded-xl p-1 border border-divider/60">
     <a href="/" class="px-4 py-1.5 rounded-lg text-sm font-medium transition-all {isActive('/') ? 'bg-brand text-text-primary shadow shadow-brand/30' : 'text-text-muted hover:text-text-primary'}">Home</a>
-    <a href="/admin" class="px-4 py-1.5 rounded-lg text-sm font-medium transition-all {isActive('/admin') ? 'bg-brand text-text-primary shadow shadow-brand/30' : 'text-text-muted hover:text-text-primary'}">Admin</a>
+    {#if isAdmin}
+      <a href="/admin" class="px-4 py-1.5 rounded-lg text-sm font-medium transition-all {isActive('/admin') ? 'bg-brand text-text-primary shadow shadow-brand/30' : 'text-text-muted hover:text-text-primary'}">Admin</a>
+    {/if}
     <a href="/mail" class="px-4 py-1.5 rounded-lg text-sm font-medium transition-all {isActive('/mail') ? 'bg-brand text-text-primary shadow shadow-brand/30' : 'text-text-muted hover:text-text-primary'}">Mail</a>
     {#if !token}
       <a href="/login" class="px-4 py-1.5 rounded-lg text-sm font-medium transition-all {isActive('/login') ? 'bg-brand text-text-primary shadow shadow-brand/30' : 'text-text-muted hover:text-text-primary'}">Sign in</a>

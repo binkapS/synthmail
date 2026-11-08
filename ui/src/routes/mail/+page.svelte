@@ -139,7 +139,7 @@
   {#if loadingFolders}
     <div class="p-6"><Spinner /></div>
   {:else}
-    <div class="flex flex-col md:flex-row h-[calc(100vh-7rem)] w-full overflow-hidden rounded-3xl border border-divider bg-surface/60 backdrop-blur-xl shadow-2xl shadow-black/30">
+    <div class="flex flex-col md:flex-row min-h-[70vh] md:h-[calc(100vh-7rem)] w-full overflow-hidden rounded-3xl border border-divider bg-surface/60 backdrop-blur-xl shadow-2xl shadow-black/30">
       <!-- Column 1: navigation -->
       <aside class="w-full md:w-[18%] bg-surface/80 border-b md:border-b-0 md:border-r border-divider flex flex-col p-4 gap-4 overflow-y-auto">
         <div class="flex items-center gap-2 px-1">
@@ -176,7 +176,7 @@
       </aside>
 
       <!-- Column 2: mailbox list -->
-      <section class="w-full md:w-[32%] bg-appBg border-b md:border-b-0 md:border-r border-divider flex flex-col overflow-y-auto p-3">
+      <section class="w-full md:w-[32%] bg-appBg border-b md:border-b-0 md:border-r border-divider flex flex-col overflow-y-auto p-3 max-h-[50vh] md:max-h-none">
         <div class="flex gap-2 mb-3">
           <input
             bind:value={searchQuery}
