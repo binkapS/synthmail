@@ -8,7 +8,8 @@ FROM rust:bookworm AS builder
 RUN rustup toolchain install stable \
     && rustup target add wasm32-unknown-unknown --toolchain stable \
     && rustup target list --installed --toolchain stable | grep -q wasm32-unknown-unknown \
-    && cargo install trunk --locked --root /usr/local
+    && cargo install trunk --locked --root /usr/local \
+    && cargo install wasm-bindgen-cli --version 0.2.130 --root /usr/local
 ENV PATH="/usr/local/bin:${PATH}"
 WORKDIR /app
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
