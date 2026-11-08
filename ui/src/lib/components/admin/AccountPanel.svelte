@@ -49,7 +49,11 @@
       clearAuth();
       info = "Password changed. Please sign in again.";
       setTimeout(() => goto("/login"), 800);
-    } catch (e: any) { err = e?.message ?? String(e); }
+    } catch (e: any) {
+      const m = e?.message ?? String(e);
+      if (m.includes("HTTP 401")) err = "Current password is incorrect (HTTP 401).";
+      else err = m;
+    }
     finally { pw_pending = false; }
   }
 
@@ -102,6 +106,9 @@
 
     <div class="border-t border-divider mt-4 pt-4">
       <h3 class="font-semibold">Change password</h3>
+      {#if forced}
+        <p class="text-warning text-sm mt-1">Your password must be changed before using webmail. Enter your current password below.</p>
+      {/if}
       <div class="flex flex-col gap-3 mt-3 max-w-md">
         <Field label="Current password"><Input type="password" bind:value={curPw} /></Field>
         <Field label="New password"><Input type="password" bind:value={newPw} /></Field>
