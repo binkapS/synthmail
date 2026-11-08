@@ -3,6 +3,21 @@
   import * as Api from "$lib/api";
   import AuthGuard from "$lib/components/AuthGuard.svelte";
   import { Card, Spinner, Button } from "$lib/ui";
+  import OverviewPanel from "$lib/components/admin/OverviewPanel.svelte";
+  import DomainsPanel from "$lib/components/admin/DomainsPanel.svelte";
+  import UsersPanel from "$lib/components/admin/UsersPanel.svelte";
+  import AliasesPanel from "$lib/components/admin/AliasesPanel.svelte";
+  import QuotaPanel from "$lib/components/admin/QuotaPanel.svelte";
+  import QueuesPanel from "$lib/components/admin/QueuesPanel.svelte";
+  import DkimPanel from "$lib/components/admin/DkimPanel.svelte";
+  import FiltersPanel from "$lib/components/admin/FiltersPanel.svelte";
+  import VacationPanel from "$lib/components/admin/VacationPanel.svelte";
+  import DmarcPanel from "$lib/components/admin/DmarcPanel.svelte";
+  import AuditPanel from "$lib/components/admin/AuditPanel.svelte";
+  import BansPanel from "$lib/components/admin/BansPanel.svelte";
+  import TokensPanel from "$lib/components/admin/TokensPanel.svelte";
+  import ConfigPanel from "$lib/components/admin/ConfigPanel.svelte";
+  import AccountPanel from "$lib/components/admin/AccountPanel.svelte";
   import { setAuthToken } from "$lib/stores/auth.svelte";
 
   const tabs: [string, string][] = [
@@ -76,13 +91,22 @@
         </div>
       </aside>
       <section class="min-w-0 flex flex-col gap-4">
-        <Card>
-          <h2 class="text-xl font-semibold">{tabs.find((t) => t[0] === active)?.[1] ?? "Overview"}</h2>
-          <p class="text-text-muted text-sm">Section scaffold. Implementation follows in Phase 3.</p>
-          {#if meEmail}
-            <p class="text-text-dim text-xs mt-2">Signed in as {meEmail}</p>
-          {/if}
-        </Card>
+        {#if active === "overview"}<OverviewPanel />
+        {:else if active === "domains"}<DomainsPanel />
+        {:else if active === "users"}<UsersPanel />
+        {:else if active === "aliases"}<AliasesPanel />
+        {:else if active === "quota"}<QuotaPanel />
+        {:else if active === "queues"}<QueuesPanel />
+        {:else if active === "dkim"}<DkimPanel />
+        {:else if active === "filters"}<FiltersPanel />
+        {:else if active === "vacation"}<VacationPanel />
+        {:else if active === "dmarc"}<DmarcPanel />
+        {:else if active === "audit"}<AuditPanel />
+        {:else if active === "bans"}<BansPanel />
+        {:else if active === "tokens"}<TokensPanel />
+        {:else if active === "config"}<ConfigPanel />
+        {:else if active === "account"}<AccountPanel />
+        {/if}
       </section>
     </div>
   {/if}
