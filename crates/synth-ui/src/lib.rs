@@ -4,6 +4,7 @@ pub mod api;
 pub mod pages;
 
 use leptos_router::components::{Route, Router, Routes};
+use leptos_router::hooks::use_location;
 use leptos_router::path;
 pub use pages::{AdminHome, Home, LoginPage, NotFound, WebmailHome};
 
@@ -33,6 +34,7 @@ fn App() -> impl IntoView {
     });
 
     let auth_token = RwSignal::new(api::get_token());
+    let nav_open = RwSignal::new(false);
     provide_context(theme);
     provide_context(auth_token);
     provide_context(AppState { auth_token });
@@ -40,7 +42,34 @@ fn App() -> impl IntoView {
     view! {
         <Router>
             <div class="app-shell" data-theme=move || theme.get()>
-                <TopBar theme=theme />
+                <a href="#main" class="skip-link btn">"Skip to content"</a>
+                <TopBar theme=theme nav_open=nav_open />
+                {move || nav_open.get().then(move || {
+                    view! {
+                        <div
+                            class="scrim"
+                            on:click=move |_| nav_open.set(false)
+                            aria-hidden="true"
+                        ></div>
+                        <div class="nav-sheet" role="dialog" aria-label="Navigation">
+                            <a href="/" class="nav-sheet-link" on:click=move |_| nav_open.set(false)>
+                                <span>"⌂"</span><span>"Home"</span>
+                            </a>
+                            <a href="/login" class="nav-sheet-link" on:click=move |_| nav_open.set(false)>
+                                <span>"→"</span><span>"Sign in"</span>
+                            </a>
+                            <a href="/admin" class="nav-sheet-link" on:click=move |_| nav_open.set(false)>
+                                <span>"⚙"</span><span>"Admin"</span>
+                            </a>
+                            <a href="/mail" class="nav-sheet-link" on:click=move |_| nav_open.set(false)>
+                                <span>"✉"</span><span>"Webmail"</span>
+                            </a>
+                            <a href="/dav/" class="nav-sheet-link" target="_blank" rel="noopener">
+                                <span>"↗"</span><span>"CardDAV / CalDAV"</span>
+                            </a>
+                        </div>
+                    }
+                })}
                 <main id="main" class="main">
                     <Routes fallback=NotFound>
                         <Route path=path!("/") view=Home />
@@ -51,9 +80,10 @@ fn App() -> impl IntoView {
                 </main>
                 <footer class="footer">
                     <span>"SynthMail — self-hosted mail & admin"</span>
-                    <span class="muted">"Phase 2 · Leptos CSR"</span>
+                    <span class="muted">"Leptos · responsive"</span>
                 </footer>
             </div>
+            <BottomNav />
         </Router>
     }
 }
@@ -62,6 +92,55 @@ fn App() -> impl IntoView {
 #[allow(dead_code)]
 struct AppState {
     auth_token: RwSignal<Option<String>>,
+}
+
+/// Mobile bottom tab bar (≤820px via CSS) + active highlighting from router.
+#[component]
+fn BottomNav() -> impl IntoView {
+    let loc = use_location();
+    let path = move || loc.pathname.get();
+    let is = move |p: &str| path() == p;
+    view! {
+        <nav class="bottom-nav" aria-label="Primary (mobile)">
+            <a href="/" class:active=move || is("/") class="bottom-link">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="m3 10 9-7 9 7v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                    <path d="M9 22V12h6v10" />
+                </svg>
+                <span>"Home"</span>
+            </a>
+            <a href="/login" class:active=move || is("/login") class="bottom-link">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+                    <path d="m10 17 5-5-5-5" />
+                    <path d="M15 12H3" />
+                </svg>
+                <span>"Sign in"</span>
+            </a>
+            <a href="/admin" class:active=move || is("/admin") class="bottom-link">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+                    <circle cx="12" cy="12" r="3" />
+                </svg>
+                <span>"Admin"</span>
+            </a>
+            <a href="/mail" class:active=move || is("/mail") class="bottom-link">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <rect width="20" height="16" x="2" y="4" rx="2" />
+                    <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+                </svg>
+                <span>"Mail"</span>
+            </a>
+            <a href="/dav/" class="bottom-link" target="_blank" rel="noopener">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M15 3h6v6" />
+                    <path d="M10 14 21 3" />
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                </svg>
+                <span>"DAV"</span>
+            </a>
+        </nav>
+    }
 }
 
 /// Router-level auth guard: unauthenticated users are sent to /login
@@ -108,7 +187,8 @@ fn LogoutNavButton() -> impl IntoView {
 }
 
 #[component]
-fn TopBar(theme: ThemeSignal) -> impl IntoView {
+fn TopBar(theme: ThemeSignal, nav_open: RwSignal<bool>) -> impl IntoView {
+    let loc = use_location();
     let toggle_theme = move |_| {
         let next = if theme.get() == "dark" {
             "light"
@@ -119,15 +199,24 @@ fn TopBar(theme: ThemeSignal) -> impl IntoView {
     };
     view! {
         <header class="topbar">
-            <div class="brand">
+            <button
+                class="icon-btn nav-toggle"
+                type="button"
+                aria-label="Open navigation"
+                aria-expanded=move || nav_open.get().to_string()
+                on:click=move |_| nav_open.update(|v| *v = !*v)
+            >
+                {move || if nav_open.get() { "✕" } else { "☰" }}
+            </button>
+            <a href="/" class="brand">
                 <span class="brand-mark" aria-hidden="true">"SM"</span>
-                <strong>"SynthMail"</strong>
-            </div>
+                <span>"SynthMail"</span>
+            </a>
             <nav class="topnav" aria-label="Primary">
-                <a href="/" class="nav-link">"Home"</a>
-                <a href="/login" class="nav-link">"Login"</a>
-                <a href="/admin" class="nav-link">"Admin"</a>
-                <a href="/mail" class="nav-link">"Webmail"</a>
+                <a href="/" class="nav-link" class:active=move || loc.pathname.get() == "/">"Home"</a>
+                <a href="/login" class="nav-link" class:active=move || loc.pathname.get() == "/login">"Sign in"</a>
+                <a href="/admin" class="nav-link" class:active=move || loc.pathname.get() == "/admin">"Admin"</a>
+                <a href="/mail" class="nav-link" class:active=move || loc.pathname.get() == "/mail">"Webmail"</a>
                 <a class="nav-link" href="/dav/" target="_blank" rel="noopener">"CardDAV/CalDAV"</a>
             </nav>
             <div class="topbar-actions">
@@ -135,7 +224,7 @@ fn TopBar(theme: ThemeSignal) -> impl IntoView {
                     <LogoutNavButton/>
                 })}
                 <button class="icon-btn" type="button" on:click=toggle_theme aria-label="Toggle color theme">
-                    {move || if theme.get() == "dark" { "🌙" } else { "☀️" } }
+                    {move || if theme.get() == "dark" { "☀" } else { "☾" }}
                 </button>
             </div>
         </header>
