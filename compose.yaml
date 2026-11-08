@@ -85,20 +85,34 @@ services:
     restart: unless-stopped
 
   rspamd:
-    # Config split into local.d/<module>.conf snippets (audit H-13);
-    # local.d/redis.conf uses ${REDIS_PASSWORD} via UCL env expansion.
-    # Pinned (audit M-16); bump deliberately with a config test.
+    # Config split into local.d/<module>.conf snippets (audit H-13).
+    # redis.conf is generated at startup from $REDIS_PASSWORD because the
+    # image's entrypoint does no Jinja templating and rspamd does not import
+    # environment variables into UCL (verified: NOAUTH without this).
+    # user 0: the generation step needs root (local.d bind-mount is owned
+    # by the host, not UID 11333); rspamd workers drop privileges internally.
+    # The generation step runs as root, then rspamd itself drops to its
+    # unprivileged 11333 user (rspamd refuses to run workers as root).
     image: rspamd/rspamd:3.6.0
+    user: "0:0"
     environment:
       - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+    command:
+      - /bin/sh
+      - -c
+      - |
+        printf 'servers = "redis:6379";\npassword = "%s";\ntimeout = 1s;\n' "$$REDIS_PASSWORD" \
+          > /etc/rspamd/local.d/redis.conf
+        exec /usr/bin/setpriv --reuid=11333 --regid=11333 --clear-groups /usr/bin/rspamd -f
     volumes:
       - rspamd:/var/lib/rspamd
-      - ./docker/rspamd/local.d:/etc/rspamd/local.d:ro
+      - ./docker/rspamd/local.d:/etc/rspamd/local.d
     depends_on: [clamav, redis]
     networks: [mailnet]
     healthcheck:
       # GET (not HEAD): rspamd /ping rejects HEAD, which --spider sends.
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:11334/ping || exit 1"]
+      # No wget in the rspamd image: bash dev/tcp probe instead.
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/11334' 2>/dev/null || exit 1"]
       interval: 30s
       timeout: 5s
     restart: unless-stopped
@@ -125,9 +139,9 @@ services:
       - clamav:/var/lib/clamav
     networks: [mailnet]
     # Image's built-in HEALTHCHECK tests clamd, which never runs here;
-    # override with a process liveness probe.
+    # override with a /proc-based liveness probe (no pgrep/ps in image).
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -f 'freshclam -d' >/dev/null || exit 1"]
+      test: ["CMD-SHELL", "for p in /proc/[0-9]*/comm; do grep -q freshclam \"$$p\" 2>/dev/null && exit 0; done; exit 1"]
       interval: 30s
       timeout: 5s
     restart: unless-stopped
@@ -150,10 +164,8 @@ services:
       context: ./docker/opendmarc
       dockerfile: Dockerfile
     networks: [mailnet]
-    healthcheck:
-      test: ["CMD", "opendmarc-check"]
-      interval: 30s
-      timeout: 5s
+    # Healthcheck comes from the Dockerfile (TCP probe on 8893); the old
+    # `opendmarc-check` compose probe failed in this image.
     restart: unless-stopped
 
   synth-control:

@@ -1,4 +1,5 @@
 # SynthMail main.cf — rendered from synth-control templates in Phase 1; checked in as baseline
+compatibility_level = 3.6
 myhostname = mail.example.com
 mydomain = example.com
 myorigin = $mydomain

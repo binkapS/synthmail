@@ -30,6 +30,8 @@ mkdir -p /var/spool/postfix/private
 chmod 0755 /var/spool/postfix /var/spool/postfix/private
 
 doveadm -c /etc/dovecot/dovecot.conf stop 2>/dev/null || true
-# -n: stay in the foreground (dovecot daemonizes by default, which would
-# make PID 1 exit 0 and the container restart-loop forever).
-exec dovecot -n -c /etc/dovecot/dovecot.conf
+# Dovecot daemonizes by default; hold the container open with sleep so PID 1
+# doesn't exit 0 and restart-loop (an `exec dovecot -n` loop was tried and
+# does not hold on this build).
+dovecot -c /etc/dovecot/dovecot.conf
+sleep infinity

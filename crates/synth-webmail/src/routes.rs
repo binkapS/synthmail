@@ -5,6 +5,7 @@ use axum::{
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
+use tower_http::cors::{Any, CorsLayer};
 
 use crate::app::AppState;
 use synth_common::{AppError, ErrorResponse};
@@ -39,6 +40,12 @@ pub fn router(state: AppState) -> Router {
         .route("/dav", get(crate::carddav::dav_discovery))
         .route("/.well-known/carddav", get(crate::carddav::dav_discovery))
         .route("/.well-known/caldav", get(crate::carddav::dav_discovery))
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods(Any)
+                .allow_headers(Any),
+        )
         .with_state(state)
 }
 

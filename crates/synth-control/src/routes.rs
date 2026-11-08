@@ -9,6 +9,7 @@ use axum::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
+use tower_http::cors::{Any, CorsLayer};
 use uuid::Uuid;
 
 use crate::app::AppState;
@@ -83,6 +84,12 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/.well-known/mta-sts.txt", get(mta_sts))
         .layer(middleware::from_fn(count_requests))
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods(Any)
+                .allow_headers(Any),
+        )
         .with_state(state)
 }
 
