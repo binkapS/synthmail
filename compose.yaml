@@ -7,9 +7,13 @@
 services:
   edge:
     image: nginx:1.27-alpine
+    # Mailcow-style: bind host port is configurable so SynthMail can sit behind
+    # an existing reverse proxy / another web server on 80/443. Defaults are
+    # off the well-known HTTP/HTTPS ports to avoid collisions (e.g. with a
+    # system Apache or a host-level reverse proxy).
     ports:
-      - "80:80"
-      - "443:443"
+      - "${HTTP_BIND:-0.0.0.0}:${HTTP_PORT:-8080}:80"
+      - "${HTTPS_BIND:-0.0.0.0}:${HTTPS_PORT:-8443}:443"
     volumes:
       - ./docker/edge/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./docker/edge/443.conf.example:/etc/nginx/443.conf.example:ro

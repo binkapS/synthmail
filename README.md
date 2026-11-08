@@ -67,8 +67,8 @@ Then:
 - Admin API: `http://localhost:8000` (health: `/healthz`, metrics: `/metrics`)
 - Webmail backend: `http://localhost:3000` (health: `/healthz`)
 - Watchdog: network-internal only (no host port); query health/status inside `mailnet`, e.g. `docker compose exec synth-watchdog wget -qO- http://localhost:8081/healthz` and `http://localhost:8081/status`
-- Edge: `http://localhost` (HTTPS only when certificates are provisioned)
-- Admin UI: `http://localhost/admin/` (served by `synth-ui` on `127.0.0.1:3002` behind edge)
+- Edge: `http://${HTTP_BIND:-0.0.0.0}:${HTTP_PORT:-8080}` (HTTPS on `${HTTPS_PORT:-8443}`; bind 80/443 directly by setting `HTTP_PORT=80` / `HTTPS_PORT=443`)
+- Admin UI: `http://localhost:${HTTP_PORT:-8080}/admin/` (served by `synth-ui` on `127.0.0.1:3002` behind edge)
 
 Database ports are bound to loopback; mail ports (Postfix 25/465/587) are reachable per their `ports:` binding — keep Dovecot mail ports loopback-bound until TLS is provisioned, as plaintext 143/110 carry credentials.
 
