@@ -6,10 +6,10 @@
   let { children } = $props();
 </script>
 
-<div class="bg-appBg text-text-primary min-h-screen">
-  <div class="max-w-7xl mx-auto px-4 py-4 pb-24 md:pb-4">
+<div class="min-h-screen text-text-primary">
+  <div class="max-w-[1500px] mx-auto px-3 sm:px-5 py-3 pb-28 md:pb-4">
     <TopBar />
-    <main class="mt-4">
+    <main class="mt-4 animate-in fade-in">
       {@render children()}
     </main>
   </div>

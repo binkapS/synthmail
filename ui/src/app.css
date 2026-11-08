@@ -30,7 +30,19 @@
 }
 
 html, body {
-  background-color: var(--color-appBg);
+  background:
+    radial-gradient(1100px 520px at 8% -8%, rgba(99, 102, 241, 0.22), transparent 62%),
+    radial-gradient(900px 480px at 92% -4%, rgba(14, 165, 233, 0.16), transparent 58%),
+    radial-gradient(700px 420px at 50% 110%, rgba(16, 185, 129, 0.10), transparent 60%),
+    var(--color-appBg);
+  background-attachment: fixed;
   color: var(--color-text-primary);
   font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: rgba(99, 102, 241, 0.35);
+  color: #ffffff;
 }

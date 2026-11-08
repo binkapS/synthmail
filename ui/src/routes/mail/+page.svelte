@@ -139,23 +139,29 @@
   {#if loadingFolders}
     <div class="p-6"><Spinner /></div>
   {:else}
-    <div class="flex flex-col md:flex-row h-[calc(100vh-7rem)] w-full overflow-hidden bg-appBg text-text-primary rounded-2xl border border-divider">
+    <div class="flex flex-col md:flex-row h-[calc(100vh-7rem)] w-full overflow-hidden rounded-3xl border border-divider bg-surface/60 backdrop-blur-xl shadow-2xl shadow-black/30">
       <!-- Column 1: navigation -->
-      <aside class="w-full md:w-[18%] bg-surface border-b md:border-b-0 md:border-r border-divider flex flex-col p-4 gap-4 overflow-y-auto">
-        <div class="font-bold text-lg">SynthMail</div>
+      <aside class="w-full md:w-[18%] bg-surface/80 border-b md:border-b-0 md:border-r border-divider flex flex-col p-4 gap-4 overflow-y-auto">
+        <div class="flex items-center gap-2 px-1">
+          <span class="grid place-items-center w-9 h-9 rounded-xl bg-gradient-to-br from-brand to-info shadow-lg shadow-brand/20">
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z M4 8l8 5 8-5"/></svg>
+          </span>
+          <span class="font-bold text-lg tracking-tight">Mail</span>
+        </div>
         <button
-          class="bg-brand hover:bg-indigo-500 text-text-primary font-medium px-5 py-2.5 rounded-xl shadow-lg shadow-brand/20 active:scale-[0.98] transition-all"
+          class="bg-gradient-to-r from-brand to-info hover:opacity-90 text-text-primary font-medium px-4 py-2.5 rounded-xl shadow-lg shadow-brand/30 active:scale-[0.98] transition-all"
           onclick={() => (composeMode = true)}
         >
-          New message
+          + Compose
         </button>
         <nav class="flex flex-col gap-1">
           {#each folders as f}
             <button
               type="button"
               onclick={() => { composeMode = false; selectedFolder = f; loadMessages(f); }}
-              class="text-left w-full px-3 py-2 rounded-xl transition-colors {selectedFolder === f && !composeMode ? 'bg-brand/10 border-l-4 border-l-brand text-text-primary' : 'text-text-muted hover:text-text-primary hover:bg-elevated'}"
+              class="flex items-center gap-2 text-left w-full px-3 py-2 rounded-xl transition-all {selectedFolder === f && !composeMode ? 'bg-brand/15 text-text-primary shadow-inner' : 'text-text-muted hover:text-text-primary hover:bg-elevated/70'}"
             >
+              <span class="w-2 h-2 rounded-full {selectedFolder === f && !composeMode ? 'bg-brand' : 'bg-text-dim/40'}"></span>
               {f}
             </button>
           {/each}
@@ -203,14 +209,24 @@
               <button
                 type="button"
                 onclick={() => selectMessage(m.uid)}
-                class="text-left w-full rounded-xl border transition-colors p-3 {selectedUid === m.uid && !composeMode ? 'bg-brand/10 border-brand' : 'bg-surface border-divider hover:bg-elevated'}"
+                class="group text-left w-full rounded-2xl border transition-all p-3 {selectedUid === m.uid && !composeMode ? 'bg-brand/15 border-brand/40 shadow-lg shadow-brand/10' : 'bg-surface/70 border-divider hover:bg-elevated/70'}"
               >
-                <div class="flex items-center justify-between gap-2">
-                  <span class="text-sm font-semibold truncate {m.seen ? '' : 'text-text-primary'}">{m.from ?? ""}</span>
-                  <span class="text-xs text-text-dim whitespace-nowrap">{m.date ?? ""}</span>
+                <div class="flex items-start gap-3">
+                  <div class="grid place-items-center w-10 h-10 rounded-xl bg-gradient-to-br from-brand to-info text-sm font-bold shrink-0 shadow shadow-brand/20">
+                    {(m.from ?? "?").toString().trim().slice(0, 1).toUpperCase()}
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center justify-between gap-2">
+                      <span class="text-sm font-semibold truncate {m.seen ? 'text-text-muted' : 'text-text-primary'}">{m.from ?? ""}</span>
+                      <span class="text-[11px] text-text-dim whitespace-nowrap">{m.date ?? ""}</span>
+                    </div>
+                    <div class="text-sm font-medium truncate mt-0.5 {m.seen ? '' : 'text-text-primary'}">{m.subject ?? "(no subject)"}</div>
+                    <div class="text-xs text-text-muted truncate mt-0.5">{m.preview ?? ""}</div>
+                  </div>
+                  {#if !m.seen}
+                    <span class="w-2 h-2 rounded-full bg-brand mt-1.5 shrink-0"></span>
+                  {/if}
                 </div>
-                <div class="text-sm font-medium truncate mt-0.5">{m.subject ?? "(no subject)"}</div>
-                <div class="text-xs text-text-muted truncate mt-0.5">{m.preview ?? ""}</div>
               </button>
             {/each}
           </div>
@@ -220,35 +236,40 @@
       <!-- Column 3: reading pane -->
       <main class="flex-1 bg-surface flex flex-col p-6 overflow-y-auto">
         {#if composeMode}
-          <h2 class="text-xl font-semibold mb-4">Compose</h2>
-          <div class="flex flex-col gap-3">
-            <Field label="From"><Input bind:value={meEmail} /></Field>
-            <Field label="To"><Input bind:value={composeTo} placeholder="recipient@example.com" /></Field>
-            <Field label="Subject"><Input bind:value={composeSubject} placeholder="Subject" /></Field>
-            <Field label="Body"><Textarea bind:value={composeBody} rows={10} /></Field>
-            <div class="flex gap-3">
-              <Button variant="primary" onclick={sendMail} disabled={sendPending}>{sendPending ? "Sending…" : "Send"}</Button>
-              <Button variant="secondary" onclick={() => (composeMode = false)}>Cancel</Button>
+          <div class="max-w-3xl">
+            <h2 class="text-2xl font-bold mb-4 bg-gradient-to-r from-brand to-info bg-clip-text text-transparent">Compose message</h2>
+            <div class="rounded-2xl border border-divider bg-appBg/40 p-5 space-y-3">
+              <Field label="From"><Input bind:value={meEmail} /></Field>
+              <Field label="To"><Input bind:value={composeTo} placeholder="recipient@example.com" /></Field>
+              <Field label="Subject"><Input bind:value={composeSubject} placeholder="Subject" /></Field>
+              <Field label="Body"><Textarea bind:value={composeBody} rows={12} /></Field>
+              <div class="flex gap-3 pt-2">
+                <Button variant="primary" onclick={sendMail} disabled={sendPending}>{sendPending ? "Sending…" : "Send"}</Button>
+                <Button variant="secondary" onclick={() => (composeMode = false)}>Cancel</Button>
+              </div>
             </div>
           </div>
         {:else if full}
-          <div class="mb-2">
-            <h2 class="text-2xl font-bold break-words">{full.subject ?? "(no subject)"}</h2>
-          </div>
-          <div class="flex items-center justify-between gap-2 border-b border-divider pb-3">
-            <div>
-              <div class="font-semibold">{full.from ?? ""}</div>
-              <div class="text-xs text-text-muted">{full.date ?? ""}</div>
+          <div class="max-w-4xl">
+            <h2 class="text-3xl font-bold break-words leading-tight">{full.subject ?? "(no subject)"}</h2>
+            <div class="mt-4 flex items-center gap-3">
+              <div class="grid place-items-center w-11 h-11 rounded-xl bg-gradient-to-br from-brand to-info text-sm font-bold shadow shadow-brand/20">
+                {(full.from ?? "?").toString().trim().slice(0, 1).toUpperCase()}
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="font-semibold">{full.from ?? ""}</div>
+                <div class="text-xs text-text-muted">{full.date ?? ""}</div>
+              </div>
+              {#if !full.seen}
+                <span class="bg-info/10 text-info text-xs font-semibold px-2.5 py-1 rounded-full border border-info/20">unread</span>
+              {/if}
             </div>
-            {#if !full.seen}
-              <span class="bg-info/10 text-info text-xs font-semibold px-2.5 py-1 rounded-full border border-info/20">unread</span>
-            {/if}
-          </div>
-          <div class="mt-4 whitespace-pre-wrap break-words text-text-primary leading-relaxed">
-            {full.raw ?? ""}
+            <div class="mt-6 rounded-2xl border border-divider bg-appBg/40 p-6 whitespace-pre-wrap break-words text-text-primary leading-relaxed">
+              {full.raw ?? ""}
+            </div>
           </div>
         {:else}
-          <EmptyState text="Select a message to read." />
+          <div class="grid place-items-center h-full"><EmptyState text="Select a message to read." /></div>
         {/if}
       </main>
     </div>

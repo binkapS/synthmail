@@ -72,15 +72,21 @@
       </div>
     </Card>
   {:else}
-    <div class="grid grid-cols-1 md:grid-cols-[256px_1fr] gap-4">
-      <aside class="bg-surface border border-divider rounded-2xl p-4 flex flex-col gap-2 h-fit md:sticky md:top-4">
-        <h3 class="text-lg font-semibold">Admin</h3>
-        <nav class="flex flex-col gap-1">
+    <div class="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-5">
+      <aside class="bg-surface/70 backdrop-blur-xl border border-divider rounded-3xl p-4 flex flex-col gap-2 h-fit lg:sticky lg:top-4 shadow-2xl shadow-black/20">
+        <div class="flex items-center gap-3 px-2 py-2">
+          <div class="grid place-items-center w-10 h-10 rounded-2xl bg-gradient-to-br from-brand to-info shadow-lg shadow-brand/20 text-sm font-bold">A</div>
+          <div>
+            <div class="font-semibold">Admin console</div>
+            <div class="text-xs text-text-muted">{meEmail || "Signed in"}</div>
+          </div>
+        </div>
+        <nav class="flex flex-col gap-1 mt-2">
           {#each tabs as [key, label]}
             <button
               type="button"
               onclick={() => (active = key)}
-              class="text-left w-full px-3 py-2 rounded-xl transition-colors {active === key ? 'bg-brand/10 border-l-4 border-l-brand text-text-primary' : 'text-text-muted hover:text-text-primary hover:bg-elevated'}"
+              class="text-left w-full px-3 py-2.5 rounded-xl transition-all {active === key ? 'bg-gradient-to-r from-brand/20 to-info/10 text-text-primary shadow-inner border border-brand/20' : 'text-text-muted hover:text-text-primary hover:bg-elevated/70'}"
             >
               {label}
             </button>
