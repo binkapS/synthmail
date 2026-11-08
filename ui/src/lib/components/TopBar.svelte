@@ -30,11 +30,14 @@
   </a>
 
   <nav class="hidden md:flex items-center gap-1 ml-auto bg-elevated/60 rounded-xl p-1 border border-divider/60">
-    <a href="/" class="px-4 py-1.5 rounded-lg text-sm font-medium transition-all {isActive('/') ? 'bg-brand text-text-primary shadow shadow-brand/30' : 'text-text-muted hover:text-text-primary'}">Home</a>
     {#if isAdmin}
+      <a href="/" class="px-4 py-1.5 rounded-lg text-sm font-medium transition-all {isActive('/') ? 'bg-brand text-text-primary shadow shadow-brand/30' : 'text-text-muted hover:text-text-primary'}">Home</a>
       <a href="/admin" class="px-4 py-1.5 rounded-lg text-sm font-medium transition-all {isActive('/admin') ? 'bg-brand text-text-primary shadow shadow-brand/30' : 'text-text-muted hover:text-text-primary'}">Admin</a>
     {/if}
-    <a href="/mail" class="px-4 py-1.5 rounded-lg text-sm font-medium transition-all {isActive('/mail') ? 'bg-brand text-text-primary shadow shadow-brand/30' : 'text-text-muted hover:text-text-primary'}">Mail</a>
+    {#if token}
+      <a href="/mail" class="px-4 py-1.5 rounded-lg text-sm font-medium transition-all {isActive('/mail') ? 'bg-brand text-text-primary shadow shadow-brand/30' : 'text-text-muted hover:text-text-primary'}">Mail</a>
+      <a href="/account" class="px-4 py-1.5 rounded-lg text-sm font-medium transition-all {isActive('/account') ? 'bg-brand text-text-primary shadow shadow-brand/30' : 'text-text-muted hover:text-text-primary'}">Account</a>
+    {/if}
     {#if !token}
       <a href="/login" class="px-4 py-1.5 rounded-lg text-sm font-medium transition-all {isActive('/login') ? 'bg-brand text-text-primary shadow shadow-brand/30' : 'text-text-muted hover:text-text-primary'}">Sign in</a>
     {/if}

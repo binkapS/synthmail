@@ -123,6 +123,10 @@
     (async () => {
       try {
         const m: any = await Api.me();
+        if (m.force_password_change) {
+          goto("/account");
+          return;
+        }
         meEmail = m.email ?? "";
       } catch {}
       try {

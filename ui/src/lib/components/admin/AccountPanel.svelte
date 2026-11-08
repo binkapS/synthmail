@@ -1,8 +1,10 @@
 <script lang="ts">
+  import { goto } from "$app/navigation";
   import * as Api from "$lib/api";
   import { Card, Spinner, EmptyState, ErrorCard, Field, Input, Button } from "$lib/ui";
 
   let me = $state<any>(null);
+  let forced = $state(false);
   let loading = $state(true);
   let err = $state("");
   let info = $state("");
@@ -24,7 +26,10 @@
   async function load() {
     loading = true;
     err = "";
-    try { me = await Api.me(); } catch (e: any) { err = e?.message ?? String(e); }
+    try {
+      me = await Api.me();
+      forced = !!me?.force_password_change;
+    } catch (e: any) { err = e?.message ?? String(e); }
     finally { loading = false; }
   }
 
@@ -36,6 +41,16 @@
       await Api.changePassword(curPw, newPw);
       info = "Password changed.";
       curPw = ""; newPw = "";
+      if (forced) {
+        try {
+          const m: any = await Api.me();
+          forced = false;
+          if (m.kind === "admin" || m.kind === "superadmin") goto("/admin");
+          else goto("/mail");
+        } catch {
+          /* noop */
+        }
+      }
     } catch (e: any) { err = e?.message ?? String(e); }
     finally { pw_pending = false; }
   }
