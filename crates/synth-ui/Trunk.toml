@@ -1,7 +1,0 @@
-[build]
-target = "index.html"
-dist = "dist"
-
-# NOTE: Trunk 0.22 changed the serve/proxy TOML format; the build does not
-# need it. For local dev, override on the CLI:
-#   trunk serve --proxy-backend "http://localhost:8000"
