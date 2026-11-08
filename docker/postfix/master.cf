@@ -1,9 +1,21 @@
-# SynthMail master.cf baseline
-smtp      inet  n       -       -       -       -       smtpd
-submission inet  n       -       -       -       -       smtpd
+#
+# Postfix master process configuration file. For details on the format
+# of the file, see the master(5) manual page.
+#
+# SynthMail: based on the stock Postfix 3.7 master.cf (audit C-06:
+# submission requires TLS + SASL; smtpd_tls_auth_only).
+#
+# ==========================================================================
+# service type  private unpriv  chroot  wakeup  maxproc command + args
+#               (yes)   (yes)   (no)    (never) (100)
+# ==========================================================================
+smtp      inet  n       -       n       -       -       smtpd
+submission inet  n       -       n       -       -       smtpd
   -o syslog_name=postfix/submission
   -o smtpd_tls_security_level=encrypt
-smtps     inet  n       -       -       -       -       smtpd
+  -o smtpd_sasl_auth_enable=yes
+  -o smtpd_tls_auth_only=yes
+smtps     inet  n       -       n       -       -       smtpd
   -o syslog_name=postfix/smtps
   -o smtpd_tls_wrappermode=yes
   -o smtpd_tls_security_level=encrypt
@@ -12,17 +24,29 @@ smtps     inet  n       -       -       -       -       smtpd
 pickup    unix  n       -       n       60      1       pickup
 cleanup   unix  n       -       n       -       0       cleanup
 qmgr      unix  n       -       n       300     1       qmgr
-relay     unix  -       -       n       -       -       smtp
-error     unix  -       -       n       -       -       smtp
-retry     unix  -       -       n       -       -       smtp
+#qmgr     unix  n       -       n       300     100 oqmgr
+tlsmgr    unix  -       -       n       1000?   1       tlsmgr
+rewrite   unix  -       -       n       -       -       trivial-rewrite
 bounce    unix  -       -       n       -       0       bounce
-defer     unix  -       -       n       -       0       smtp
-trace     unix  -       -       n       -       0       smtp
+defer     unix  -       -       n       -       0       bounce
+trace     unix  -       -       n       -       0       bounce
 verify    unix  -       -       n       -       1       verify
-flush     unix  n       -       n       1000    0       flush
-proxymap unix  -       -       n       -       -       proxymap
-smtp      unix  -       -       -       -       -       smtp
-smtps     unix  -       -       -       -       -       smtp
-relay     unix  -       -       -       -       -       smtp
-uucp      unix  -       n       -       -       -       uucp
-lmtp      inet  n       -       -       -       -       lmtpd
+flush     unix  n       -       n       1000?   0       flush
+proxymap  unix  -       -       n       -       -       proxymap
+smtp      unix  -       -       n       -       -       smtp
+relay     unix  -       -       n       -       -       smtp
+# showq
+showq     unix  -       -       n       -       0       showq
+error     unix  -       -       n       -       -       error
+retry     unix  -       -       n       -       -       error
+discard   unix  -       -       n       -       -       discard
+local     unix  -       -       n       -       -       local
+virtual   unix  -       -       n       -       -       virtual
+lmtp      unix  -       -       n       -       -       lmtp
+uucp      unix  -       -       n       -       -       uucp
+postlog   unix-dgram n  -       n       -       1       postlogd
+# Other Postfix daemon processes.
+#2618
+spawn   unix  -       -       -       0       -       spawn
+#anvil     unix  -       -       -       1       anvil
+#scache    unix  -       -       -       0       scache
