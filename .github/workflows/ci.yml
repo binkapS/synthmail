@@ -74,14 +74,20 @@ jobs:
             debian:bookworm-slim sh -c \
             'apt-get update >/dev/null && apt-get install -y --no-install-recommends dovecot-core >/dev/null && doveconf -n | head -5'
   ui-build:
-    # Audit H-11: WASM build of the Leptos SPA.
+    # Svelte 5 SPA build.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with: { targets: wasm32-unknown-unknown }
-      - name: wasm check
-        run: cargo check -p synth-ui --target wasm32-unknown-unknown
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - working-directory: ui
+        run: npm ci
+      - working-directory: ui
+        run: npm run check
+      - working-directory: ui
+        run: npm test
+      - working-directory: ui
+        run: npm run build
   smoke:
     runs-on: ubuntu-latest
     env:

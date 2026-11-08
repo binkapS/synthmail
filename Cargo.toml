@@ -8,7 +8,7 @@ members = [
     "crates/synth-filter",
     "crates/synth-dkim",
     "crates/synth-migrate",
-    "crates/synth-ui",
+
     "crates/synth-smtp",
     "crates/synth-bench",
 ]
