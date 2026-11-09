@@ -1,13 +1,34 @@
 # SynthMail fail2ban jails (Debian fail2ban 1.0.2).
-# banaction = dummy: per-container networking means fail2ban cannot reach
-# the mail containers' netns, so IP enforcement happens upstream (edge +
-# in-app rate limiting); fail2ban here parses auth logs and feeds bans
-# into the DB + watchdog alerting.
+#
+# Plan §2 (make fail2ban effective on the host):
+#
+# Two enforcement paths are supported; the container runs `network_mode: host`
+# so its ban action reaches the HOST firewall, not a per-container netns.
+#
+#   banaction = nft     (default here; host firewall enforcement)
+#   banaction = iptables-multiport  (alternative, older hosts)
+#   banaction = dummy   (log-only; pre-§2 behaviour — bans feed the DB +
+#                        watchdog alerting but no host firewall action)
+#
+# The log paths below point at the same file locations Postfix and Dovecot
+# write to (shared `logs` volume): /var/log/postfix.log and
+# /var/log/dovecot.log. When fail2ban runs in a container with host network
+# privileges, mount /var/log read-only from the host so host-level bans
+# apply to host SMTP/IMAP traffic (see compose.yaml fail2ban service).
+#
+# Rollback / unban (docs/runbooks/security.md "fail2ban unban"):
+#   docker compose exec fail2ban fail2ban-client set <jail> unbanip <IP>
+
 [DEFAULT]
 bantime = 3600
 findtime = 600
 maxretry = 5
-banaction = dummy
+# Host firewall enforcement (Plan §2). Banned IPs are blocked on the host,
+# not only inside a container namespace. If the container cannot write to the
+# host firewall (missing capability), set banaction = dummy to fall back to
+# log-only + DB/alerting enforcement.
+banaction = nft
+banaction_all = nft-all
 usedns = warn
 allowipv6 = auto
 
@@ -34,3 +55,8 @@ backend = polling
 # NOTE: no synth-webmail jail - webmail rate limiting/banning is enforced
 # in-app (synth-common rate_limit + login_attempts table), and webmail logs
 # to stdout, so there is no log file for fail2ban to tail.
+#
+# Optional container log path override (Plan §2): when fail2ban tails
+# host-collected logs instead of the shared `logs` volume, set these in an
+# operator jail.local or via the FAIL2BAN_LOG_DIR env handled in
+# entrypoint.sh. Defaults here keep the shared-volume layout.

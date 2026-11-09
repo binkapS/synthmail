@@ -73,7 +73,11 @@
       <h3 class="font-semibold mb-2">Docker containers</h3>
       <p class="text-xs text-text-dim mb-3">{server.containers_note ?? ""}</p>
       {#if (server.containers ?? []).length === 0}
-        <p class="text-text-muted text-sm">No container data (mount /var/run/docker.sock to enable).</p>
+        <p class="text-text-muted text-sm">
+          {server.containers_note?.toLowerCase().includes("intentionally disabled")
+            ? "Container view is intentionally off. Enable it with ENABLE_CONTAINER_STATS=1 and a /var/run/docker.sock mount when you need per-container status. Host-level metrics above are unaffected."
+            : "No container data available for this server."}
+        </p>
       {:else}
         <div class="flex flex-col gap-2">
           {#each server.containers as c}

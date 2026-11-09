@@ -4,9 +4,17 @@ myhostname = mail.example.com
 mydomain = example.com
 myorigin = $mydomain
 relayhost = 
-# Narrow (audit N-06): loopback + the Docker mailnet bridge only.
-# The previous 172.16.0.0/12 trusted every private subnet, so any
-# compromised container could relay without SASL.
+# Trusted networks (audit N-06 + Plan §1 host-network edge).
+#
+# In the default bridge layout the mailnet subnet is trusted so the internal
+# milter/LMTP peers (opendkim, opendmarc, dovecot LMTP) can talk to smtpd.
+# When the `mail-edge` profile switches postfix/dovecot to `network_mode: host`
+# (Plan §1), those peers are reached by hostname over mailnet instead and no
+# 172.x bridge subnet is trusted — in that layout set
+#   mynetworks = 127.0.0.0/8 [::1]/128
+# (see docker/compose.host-mail-edge.yaml, which rewrites this line at start).
+# Trusting a host subnet here only matters on the bridge layout; in the host
+# layout it is dropped so no non-loopback address can relay without SASL.
 mynetworks = 127.0.0.0/8 [::ffff:127.0.0.0]/104 [::1]/128 172.17.0.0/16
 inet_interfaces = all
 inet_protocols = ipv4

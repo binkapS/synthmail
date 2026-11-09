@@ -4,6 +4,24 @@
 # ports are bound to 127.0.0.1 only — reach them via the edge reverse proxy
 # or an SSH tunnel/VPN. The watchdog service publishes no host port; query
 # its health endpoint from inside the mailnet network.
+#
+# Plan §1 (preserve real SMTP client IPs): the four public-facing mail daemons
+# (postfix / dovecot / rspamd / clamav) run on the `mailnet` bridge by
+# default, so inbound SMTP shows the bridge gateway IP as `client=`, not the
+# public sender. To put them on the host network instead (so Postfix's
+# `client=` logs and Rspamd/RBL lookups see the real public IP), set:
+#   export MAIL_EDGE=1
+# and reload. In host mode:
+#   - `network_mode: host` replaces `networks: [mailnet]` on the four daemons;
+#   - the bridge NAT publishing of 25/465/587/993/4190 is cleared (the
+#     daemons bind host ports directly, so re-publishing would collide);
+#   - the shared volumes (maildir, certs, postfix-spool, dkim) are unchanged;
+#   - the Postfix entrypoint tightens `mynetworks` to loopback-only because
+#     the bridge subnet is no longer a trusted peer address space.
+# The host firewall must then allow 25/465/587/993/4190 on the host. The
+# default (bridge) layout keeps the existing `127.0.0.1`-bound ports and is
+# unchanged. See docs/runbooks/deliverability.md "Host-network edge
+# validation" for the acceptance test that records `client=` log evidence.
 services:
   edge:
     image: nginx:1.27-alpine
@@ -30,10 +48,39 @@ services:
     build:
       context: ./docker/postfix
       dockerfile: Dockerfile
-    ports:
-      - "25:25"
-      - "465:465"
-      - "587:587"
+    # Plan §1 (preserve real SMTP client IPs).
+    #
+    # Bridge layout (default, MAIL_EDGE_NETWORK unset):
+    #   networks: [mailnet], ports 25/465/587 published via bridge NAT.
+    # Inbound SMTP shows the bridge gateway as client=; acceptable for dev.
+    #
+    # Host layout (MAIL_EDGE_NETWORK=host in .env):
+    #   network_mode: host — the daemon binds host ports 25/465/587 directly,
+    #   so inbound client= is the public remote IP, not a bridge address.
+    #   No bridge NAT publishing is used; the host firewall must allow
+    #   25/465/587 inbound. Shared volumes (maildir, certs, postfix-spool,
+    #   logs, dkim) are unchanged.
+    #
+    # In host mode the Postfix entrypoint tightens mynetworks to loopback
+    # only (the bridge subnet 172.17.0.0/16 is no longer the trusted peer
+    # address space). Set via the MAIL_EDGE env var below.
+    # Plan §1: host network by default so Postfix/Dovecot/Rspamd see the real
+    # remote sender IP (client=) rather than the Docker bridge gateway.
+    # Set MAIL_EDGE_NETWORK="" to fall back to bridge NAT (no public IP
+    # preservation; only usable when the stack sits behind a port-forwarding
+    # NAT and you do NOT need the public source IP in Postfix logs).
+    #
+    # In host mode the daemon binds host ports directly, so we do NOT publish
+    # bridge NAT ports for 25/465/587 — doing so would collide with the
+    # host-binds. Host firewall (nft/iptables) must allow 25/465/587/993/4190.
+    network_mode: ${MAIL_EDGE_NETWORK:-host}
+    # No port publishing in host mode (bridge NAT would collide with the
+    # direct host binds). When running the bridge fallback (MAIL_EDGE_NETWORK=""
+    # plus `networks: [mailnet]` re-added by hand), restore the publishes.
+    # ports:
+    #   - "25:25"
+    #   - "465:465"
+    #   - "587:587"
     # TLS (audit C-06): certs must exist under certs/live/<MAIL_HOST>/ before
     # postfix starts. Provision them with the acme profile or copy manually;
     # the container fails closed otherwise (smtpd_tls_cert_file missing).
@@ -48,8 +95,16 @@ services:
       # Used by the entrypoint to substitute the password into the pgsql maps
       # under docker/postfix/pgsql/*.cf (audit H-06).
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      # Plan §1: the entrypoint reads MAIL_EDGE=1 to tighten mynetworks to
+      # loopback-only (host-network layout; the bridge subnet is no longer a
+      # trusted peer address space). Always "1" in the default host layout.
+      - MAIL_EDGE=${MAIL_EDGE:-1}
     depends_on: [postgres, redis]
-    networks: [mailnet]
+    # Plan §1: in host-network mode we must NOT also attach to a user-defined
+    # bridge network (network_mode: host is mutually exclusive with `networks`).
+    # The daemon reaches postgres/redis by service hostname over the host's
+    # DNS (the bridge network's DNS is still attached to the app services), so
+    # the pgsql virtual maps and LMTP delivery still resolve.
     healthcheck:
       test: ["CMD", "postfix", "status"]
       interval: 30s
@@ -60,15 +115,19 @@ services:
     build:
       context: ./docker/dovecot
       dockerfile: Dockerfile
-    # Loopback-only (audit N-05): plaintext IMAP/POP3 on 143/110 carry
-    # credentials, and TLS is fail-closed. Expose via a TLS terminator
-    # (edge) or an SSH tunnel. Publish 993/995/4190 only after ACME.
-    ports:
-      - "127.0.0.1:143:143"
-      - "127.0.0.1:993:993"
-      - "127.0.0.1:110:110"
-      - "127.0.0.1:995:995"
-      - "127.0.0.1:4190:4190"
+    # Plan §1: host network so IMAP/POP3 clients connect with their real
+    # public IP. The dovecot daemon binds host ports 143/993/110/995/4190
+    # directly; no bridge NAT publishing. Loopback-only publishing was the
+    # pre-plan behaviour (audit N-05); in host mode the host firewall
+    # (nft/iptables) + fail2ban are the enforcement points.
+    network_mode: ${MAIL_EDGE_NETWORK:-host}
+    # No bridge port publishing in host mode (would collide with host binds).
+    # ports:
+    #   - "127.0.0.1:143:143"
+    #   - "127.0.0.1:993:993"
+    #   - "127.0.0.1:110:110"
+    #   - "127.0.0.1:995:995"
+    #   - "127.0.0.1:4190:4190"
     volumes:
       - maildir:/var/vmail
       - logs:/var/log
@@ -77,10 +136,11 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL:-postgres://synth:synth_dev@postgres:5432/synthmail}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-synth_dev}
+      # Plan §1: host-network edge flag.
+      - MAIL_EDGE=${MAIL_EDGE:-1}
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
-    networks: [mailnet]
     healthcheck:
       test: ["CMD", "doveadm", "who"]
       interval: 30s
@@ -112,7 +172,10 @@ services:
       - rspamd:/var/lib/rspamd
       - ./docker/rspamd/local.d:/etc/rspamd/local.d
     depends_on: [clamav, redis]
-    networks: [mailnet]
+    # Plan §1: host network so Rspamd DNSBL/RBL checks receive the original
+    # client IP (not the Docker bridge gateway). Rspamd binds 11334 directly
+    # on the host; no bridge NAT publishing.
+    network_mode: ${MAIL_EDGE_NETWORK:-host}
     healthcheck:
       # GET (not HEAD): rspamd /ping rejects HEAD, which --spider sends.
       # No wget in the rspamd image: bash dev/tcp probe instead.
@@ -127,7 +190,9 @@ services:
     # Pin by digest in production once a digest is known.
     volumes:
       - clamav:/var/lib/clamav
-    networks: [mailnet]
+    # Plan §1: host network (clamd binds host port 3310 directly; no bridge
+    # NAT publishing). Part of the host-networked mail-edge profile.
+    network_mode: ${MAIL_EDGE_NETWORK:-host}
     healthcheck:
       # TCP probe on clamd's control port; clamdscan --ping is unreliable
       # inside this image's socket layout.
@@ -192,11 +257,30 @@ services:
       - INITIAL_ADMIN_EMAIL=${INITIAL_ADMIN_EMAIL:-admin@example.com}
       - INITIAL_ADMIN_PASSWORD=${INITIAL_ADMIN_PASSWORD:-}
       - MAIL_HOST=${MAIL_HOST:-mail.example.com}
+      # Plan §3: opt-in flag for the admin container-stats view. Default is
+      # OFF; the Docker socket mount is commented out below. Set to "1" and
+      # uncomment the socket volume when you want per-container status on a
+      # trusted host.
+      - ENABLE_CONTAINER_STATS=${ENABLE_CONTAINER_STATS:-0}
+      # Where to find the Docker socket if ENABLE_CONTAINER_STATS=1.
+      - DOCKER_SOCKET=${DOCKER_SOCKET:-/var/run/docker.sock}
     volumes:
       # Shared with opendkim so newly generated keys are signed immediately (audit H-07).
       - dkim:/var/dkim-sync
-      # Optional: expose Docker socket for in-app container monitoring (read-only).
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Plan §3: Docker socket access is OPTIONAL, not a required default.
+      # The in-app container-stats view in the admin Server panel is gated
+      # behind ENABLE_CONTAINER_STATS (see crates/synth-control/src/routes.rs);
+      # without the flag the panel shows a clean "intentionally disabled"
+      # note and the host-level CPU/RAM/disk metrics keep working.
+      #
+      # Mount the read-only socket ONLY on a trusted host where you want the
+      # per-container view. It grants local control-plane access to Docker and
+      # should not be enabled on untrusted or shared hosts. To enable:
+      #   - enable the volume mount below (uncomment) and set
+      #     ENABLE_CONTAINER_STATS=1 in .env
+      # On untrusted hosts leave it commented; the admin panel then simply
+      # omits the container section.
+      # - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -288,10 +372,32 @@ services:
     build:
       context: ./docker/fail2ban
       dockerfile: Dockerfile
+    # Plan §2: make fail2ban effective on the host.
+    #
+    # network_mode: host → the ban action (nft/iptables in jail.local) reaches
+    # the HOST firewall, not a per-container netns. Banned IPs are blocked
+    # for host-level SMTP/IMAP traffic.
+    #
+    # logs: the `logs` named volume (shared with postfix + dovecot) holds
+    # /var/log/postfix.log and /var/log/dovecot.log. Mount the host's
+    # /var/log read-only instead if you run fail2ban host-native and want it
+    # to tail journald/syslog-collected Postfix/Dovecot logs at the same
+    # location. See docs/runbooks/security.md "fail2ban host enforcement".
     volumes:
       - logs:/var/log
+      # Host /var/log read-only option for host-native enforcement
+      # (adjust jail.local logpath to match; unmount the `logs` volume then).
+      # - /var/log:/host-var-log:ro
     depends_on: [postfix, dovecot]
-    networks: [mailnet]
+    # Plan §2: host network so bans apply at the host firewall, not inside a
+    # container namespace. The host firewall (nftables/iptables) is the
+    # enforcement point; verify with `docker compose exec fail2ban
+    # fail2ban-client status` and that the host firewall shows the ban.
+    network_mode: host
+    # Minimum capability for the host firewall ban action (nft/iptables).
+    # Scoped to the container; no SYS_ADMIN or other broad capability.
+    cap_add:
+      - NET_ADMIN
     healthcheck:
       test: ["CMD", "fail2ban-client", "status"]
       interval: 30s
@@ -396,22 +502,29 @@ services:
   acme:
     # Let's Encrypt HTTP-01 challenges served by synth-watchdog :8081
     # (audit C-06). Run: docker compose --profile acme run --rm acme
+    #
+    # ACME_STAGE selects certbot's environment (Plan §4): "staging" tests the
+    # renewal pipeline against Let's Encrypt's staging CA (safe, no rate
+    # limit on the production CA), "prod" issues a real certificate.
+    # Default is prod — run staging first, confirm renewal works, then switch
+    # to prod for cutover.
     image: certbot/certbot:v4.0.0
     profiles: ["acme"]
     environment:
       - MAIL_HOST=${MAIL_HOST:?MAIL_HOST must be set}
       - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL:?LETSENCRYPT_EMAIL must be set}
+      - ACME_STAGE=${ACME_STAGE:-prod}
     volumes:
       - certs:/etc/letsencrypt
     entrypoint:
       - /bin/sh
       - -c
       - >-
+        STAGE=""; [ "$$ACME_STAGE" = "staging" ] && STAGE="--staging";
         certbot certonly --webroot -w /etc/letsencrypt/acme-challenge
         -d $${MAIL_HOST}
-        --email $${LETSENCRYPT_EMAIL} --agree-tos --non-interactive
-        --staging
-        && echo 'ACME complete — re-run without --staging for production certs'
+        --email $${LETSENCRYPT_EMAIL} --agree-tos --non-interactive $$STAGE
+        && echo "ACME complete ($${ACME_STAGE} cert issued for $${MAIL_HOST})"
 
 volumes:
   maildir:
