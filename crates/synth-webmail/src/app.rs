@@ -5,7 +5,6 @@ use synth_common::{Config, rate_limit::RateLimiter};
 pub struct AppState {
     pub config: Config,
     pub pool: PgPool,
-    pub redis_client: redis::Client,
     pub limiter: RateLimiter,
 }
 
@@ -17,13 +16,9 @@ impl AppState {
         let redis_client = redis::Client::open(config.redis_url.clone())
             .map_err(|e| anyhow::anyhow!("redis client failed: {e}"))?;
         Ok(Self {
-            limiter: RateLimiter::with_redis(
-                config.rate_limit_per_min as usize,
-                redis_client.clone(),
-            ),
+            limiter: RateLimiter::with_redis(config.rate_limit_per_min as usize, redis_client),
             config,
             pool,
-            redis_client,
         })
     }
 }

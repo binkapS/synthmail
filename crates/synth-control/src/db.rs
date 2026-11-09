@@ -112,14 +112,13 @@ pub async fn audit(
     Ok(())
 }
 
-pub async fn redis_invalidate(pool: &PgPool, redis_client: &redis::Client) -> anyhow::Result<()> {
+pub async fn redis_invalidate(redis_client: &redis::Client) -> anyhow::Result<()> {
     if let Ok(mut c) = redis_client.get_multiplexed_async_connection().await {
         let _: Option<String> =
             redis::AsyncCommands::publish(&mut c, "synth:config:invalidate", "1")
                 .await
                 .ok();
     }
-    let _ = pool;
     Ok(())
 }
 

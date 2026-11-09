@@ -634,9 +634,7 @@ async fn create_domain(
     )
     .await
     .ok();
-    crate::db::redis_invalidate(&s.pool, &s.redis_client)
-        .await
-        .ok();
+    crate::db::redis_invalidate(&s.redis_client).await.ok();
     Ok((StatusCode::CREATED, Json(row)))
 }
 
@@ -713,9 +711,7 @@ async fn update_domain(
     )
     .await
     .ok();
-    crate::db::redis_invalidate(&s.pool, &s.redis_client)
-        .await
-        .ok();
+    crate::db::redis_invalidate(&s.redis_client).await.ok();
     Ok(Json(row2))
 }
 
@@ -994,9 +990,7 @@ async fn create_user(
     )
     .await
     .ok();
-    crate::db::redis_invalidate(&s.pool, &s.redis_client)
-        .await
-        .ok();
+    crate::db::redis_invalidate(&s.redis_client).await.ok();
     Ok((StatusCode::CREATED, Json(row)))
 }
 
@@ -1093,9 +1087,7 @@ async fn update_user(
     )
     .await
     .ok();
-    crate::db::redis_invalidate(&s.pool, &s.redis_client)
-        .await
-        .ok();
+    crate::db::redis_invalidate(&s.redis_client).await.ok();
     Ok(Json(row2))
 }
 
@@ -1272,9 +1264,7 @@ async fn create_alias(
     )
     .await
     .ok();
-    crate::db::redis_invalidate(&s.pool, &s.redis_client)
-        .await
-        .ok();
+    crate::db::redis_invalidate(&s.redis_client).await.ok();
     Ok((StatusCode::CREATED, Json(row)))
 }
 
@@ -1318,9 +1308,7 @@ async fn update_alias(
     )
     .await
     .ok();
-    crate::db::redis_invalidate(&s.pool, &s.redis_client)
-        .await
-        .ok();
+    crate::db::redis_invalidate(&s.redis_client).await.ok();
     Ok(Json(row))
 }
 
@@ -1482,9 +1470,7 @@ async fn dkim_generate(
     )
     .await
     .ok();
-    crate::db::redis_invalidate(&s.pool, &s.redis_client)
-        .await
-        .ok();
+    crate::db::redis_invalidate(&s.redis_client).await.ok();
 
     Ok(Json(serde_json::json!({
         "domain": domain_row.domain,
@@ -1568,9 +1554,7 @@ async fn save_filters(
     tx.commit()
         .await
         .map_err(|e| ErrorResponse(AppError::Database(e)))?;
-    crate::db::redis_invalidate(&s.pool, &s.redis_client)
-        .await
-        .ok();
+    crate::db::redis_invalidate(&s.redis_client).await.ok();
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -1648,9 +1632,7 @@ async fn save_vacation(
     tx.commit()
         .await
         .map_err(|e| ErrorResponse(AppError::Database(e)))?;
-    crate::db::redis_invalidate(&s.pool, &s.redis_client)
-        .await
-        .ok();
+    crate::db::redis_invalidate(&s.redis_client).await.ok();
     Ok(Json(
         serde_json::json!({"ok": true, "sieve_preview": sieve}),
     ))

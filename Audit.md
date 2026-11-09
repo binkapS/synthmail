@@ -2,7 +2,12 @@
 
 **Date:** 2026-11-09 · **Auditor:** Agnes · **Branch:** `main` @ `1c3c33c`
 
-> **Status (day 2):** S-01, S-02, S-03, S-04 remediated in-tree.
+> **Status (day 2, full):** S-01…S-04 + L-01…L-04 all remediated in-tree.
+> (L-04: `cargo audit` for the Rust lockfile + `npm audit` for the UI
+> lockfile wired into a new `audit-deps` CI job via
+> `rustsec/audit-check@v2`; local `cargo audit` available via
+> `cargo install cargo-audit`.)
+>
 > - **S-01 (CORS):** `synth-webmail` now reads `CORS_ORIGINS` env; unset/empty/
 >   `*` → legacy `Any` (back-compat), CSV list → restricts to those origins.
 >   Router picks the matching layer; `Config` gained `cors_origins` +
@@ -25,6 +30,20 @@
 >   on cap overflow the forward is skipped with a log warning, and the
 >   Redis queue copy remains the source of truth (no mail lost, no
 >   `spawn_blocking` starvation).
+> - **L-01 (webmail blanket allow-dead-code):** dropped
+>   `#![allow(dead_code)]` from `synth-webmail/src/main.rs`. The 7
+>   genuinely-dead items it was hiding are now handled individually:
+>   `AppState.redis_client` removed (was dead), `AuthUser.kind` /
+>   `SearchQuery.folder` / `SendReq.compose_from_webmail` /
+>   `DraftQuery.q` annotated with `#[allow(dead_code)]` + comment, and
+>   `fts_indexer::search` / `build_snippet` kept with a "reserved"
+>   annotation.
+> - **L-02 (dead `pool` param in `redis_invalidate`):** dropped the
+>   unused `pool: &PgPool` argument; updated the 9 call sites in
+>   `synth-control::routes` to pass only the `redis_client`.
+> - **L-03 (crate-level allow on `Config`):** dropped the struct-level
+>   `#[allow(dead_code)]` on `synth_common::Config` — every field is
+>   genuinely consumed by `from_env` / `validate`, so no warnings remain.
 >
 > **Status (day 1):** B-01, B-02, B-03 remediated in-tree — 6 clippy
 > errors in `synth-smtp` fixed (`large_enum_variant` via boxed TLS
@@ -32,7 +51,7 @@
 > CI toolchain pinned to `1.99.1` with un-truncated clippy/test logs.
 > `cargo clippy --workspace --all-targets -- -D warnings`,
 > `cargo fmt --check` and `cargo test --workspace` all pass. Remaining
-> items: B-04, D-01…D-03, L-01…L-04.
+> items: B-04, D-01…D-03.
 >
 > **Note:** the working tree also carries uncommitted Plan work
 > (host-networking §1, fail2ban §2, Docker-socket opt-in §3 — see

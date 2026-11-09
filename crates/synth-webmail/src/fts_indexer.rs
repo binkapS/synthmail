@@ -11,6 +11,7 @@ pub async fn reindex_batch(pool: &PgPool, limit: i64) -> anyhow::Result<usize> {
 
 /// Tenant-scoped full-text search (audit N-04): every result is restricted
 /// to `user_id`. The public HTTP route additionally authenticates.
+#[allow(dead_code)] // reserved for a future FTS-backed /api/v1/mail/search
 pub async fn search(
     pool: &PgPool,
     user_id: uuid::Uuid,
@@ -31,6 +32,7 @@ pub async fn search(
         .collect())
 }
 
+#[allow(dead_code)] // helper for FTS snippet display; not yet wired to a route
 pub fn build_snippet(body: &str) -> String {
     body.chars()
         .take(280)

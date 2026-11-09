@@ -118,6 +118,9 @@ pub fn parse_cors_origins(raw: Option<&str>) -> (CorsOrigins, Vec<String>) {
 pub struct AuthUser {
     pub user_id: uuid::Uuid,
     pub email: String,
+    // `kind` is used by the login response and is available for
+    // scope/role-driven UI decisions; not read internally in this crate.
+    #[allow(dead_code)]
     pub kind: String,
 }
 
@@ -691,6 +694,10 @@ async fn get_message(
 #[derive(Debug, Deserialize)]
 struct SearchQuery {
     q: String,
+    /// Folder-scoped FTS is not yet implemented (audit N-04); the field is
+    /// accepted for API-shape stability but the query currently runs across
+    /// the user's whole mailbox.
+    #[allow(dead_code)]
     folder: Option<String>,
 }
 
@@ -721,6 +728,9 @@ struct SendReq {
     to: String,
     subject: String,
     body: String,
+    /// Accepted for API shape stability; not used in the current backend
+    /// (the send path always goes through Postfix on the mailnet).
+    #[allow(dead_code)]
     compose_from_webmail: Option<bool>,
 }
 
@@ -768,7 +778,9 @@ async fn send(
 
 #[derive(Debug, Deserialize)]
 struct DraftQuery {
+    /// Accepted for API shape stability; not yet wired to a draft filter.
     #[serde(default)]
+    #[allow(dead_code)]
     q: Option<String>,
 }
 

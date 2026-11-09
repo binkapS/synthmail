@@ -35,6 +35,20 @@ jobs:
       - name: test (workspace)
         shell: bash
         run: cargo test --workspace
+
+  # Audit L-04: dependency advisories. `cargo audit` checks `Cargo.lock`
+  # against the RustSec advisory DB; `npm audit` does the same for the
+  # UI's lockfile. Both fail the job on a known-vulnerable dependency.
+  audit-deps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: rustsec audit (Cargo.lock)
+        uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: npm audit (ui/package-lock.json)
+        run: npm audit --prefix ui
   migrate_check:
     runs-on: ubuntu-latest
     services:
