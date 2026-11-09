@@ -22,3 +22,6 @@ lettre.workspace = true
 redis.workspace = true
 sqlx.workspace = true
 clap.workspace = true
+base64.workspace = true
+rustls.workspace = true
+tokio-rustls.workspace = true

@@ -50,7 +50,7 @@ crates/
   synth-watchdog/    # health poller, ACME glue, alerting (:8081)
   synth-filter/      # Sieve generation and Rspamd policy helpers
   synth-dkim/        # DKIM key generation
-  synth-smtp/        # experimental ESMTP shim (loopback :2525)
+  synth-smtp/        # ESMTP submission service: STARTTLS + AUTH + Postfix relay (:2525)
   synth-migrate/     # mailcow / PostfixAdmin / CSV import CLI
   synth-bench/       # latency / throughput harness
 ui/                 # Svelte 5 + Tailwind v4 SPA (served by synth-ui/nginx)

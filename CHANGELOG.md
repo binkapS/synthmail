@@ -6,6 +6,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+
+- `synth-smtp` is now production-ready: STARTTLS (RFC 3207) and SASL
+  AUTH PLAIN/LOGIN (RFC 4954) (TLS-only), backed by the Postgres user
+  store with Argon2id + timing-parity verification; unauthenticated
+  submission restricted to the configured local domain(s) (never an open
+  relay); bounded line reads, per-IP rate limits, queue-fail-loud `451`
+  semantics, real Postfix relay (verbatim envelope + body), graceful
+  shutdown.
+
 ### Known gaps
 
 - High availability: the original non-functional overlay was removed.
@@ -13,8 +23,6 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   only (no floating IP or automatic promotion) — see
   `docs/runbooks/ha.md`; backup plus documented restore remains the
   baseline story.
-- `synth-smtp` is an experimental ESMTP shim: unauthenticated (no
-  AUTH/STARTTLS by design), trusted networks / loopback only.
 - ClamAV is pinned to the `stable-debian` channel (upstream publishes no
   numeric tag); digest pinning is pending.
 
