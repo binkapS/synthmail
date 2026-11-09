@@ -36,14 +36,13 @@
     if (authed) out.push(["/mail", "Mail"]);
     if (authed) out.push(["/account", "Account"]);
     if (isAdmin) out.push(["/admin", "Admin"]);
-    out.push(["/dav", "DAV"]);
     return out;
   });
 </script>
 
 <nav
   class="md:hidden fixed bottom-3 left-3 right-3 z-40 grid gap-1 p-2 rounded-2xl border border-divider bg-surface/85 backdrop-blur-xl shadow-2xl shadow-black/30"
-  style="grid-template-columns: repeat({navItems.length}, minmax(0, 1fr))"
+  style="grid-template-columns: repeat({navItems.length + 1}, minmax(0, 1fr))"
 >
   {#each navItems as [href, label]}
     <a
@@ -54,4 +53,23 @@
       {label}
     </a>
   {/each}
+  <button
+    type="button"
+    onclick={async () => {
+      try {
+        const t = Api.getToken();
+        const r = await fetch("/dav", { headers: t ? { Authorization: `Bearer ${t}` } : {} });
+        if (!r.ok) throw new Error(`DAV discovery failed (HTTP ${r.status})`);
+        const xml = await r.text();
+        const blob = new Blob([xml], { type: "application/xml" });
+        window.open(URL.createObjectURL(blob), "_blank");
+      } catch (e: any) {
+        alert(e?.message ?? String(e));
+      }
+    }}
+    class="flex flex-col items-center justify-center gap-0.5 min-h-14 rounded-xl text-[11px] font-semibold text-text-muted hover:text-text-primary hover:bg-elevated/70"
+  >
+    <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6 M10 14 21 3 M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></svg>
+    DAV
+  </button>
 </nav>
