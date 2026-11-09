@@ -2530,6 +2530,31 @@ fn statvfs_path(path: &str) -> Option<DiskStat> {
     })
 }
 
+fn decode_chunked(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut out = String::new();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let mut j = i;
+        while j + 1 < bytes.len() && !(bytes[j] == b'\r' && bytes[j + 1] == b'\n') {
+            j += 1;
+        }
+        let size_str = std::str::from_utf8(&bytes[i..j]).unwrap_or("").split(';').next().unwrap_or("").trim();
+        let size = usize::from_str_radix(size_str, 16).unwrap_or(0);
+        i = j + 2;
+        if size == 0 {
+            break;
+        }
+        if i + size <= bytes.len() {
+            out.push_str(&input[i..i + size]);
+            i += size + 2;
+        } else {
+            break;
+        }
+    }
+    out
+}
+
 fn list_docker_containers() -> (Vec<ContainerStat>, String) {
     use std::io::{Read, Write};
     use std::os::unix::net::UnixStream;
@@ -2552,8 +2577,18 @@ fn list_docker_containers() -> (Vec<ContainerStat>, String) {
         return (vec![], "Failed to read Docker response".to_string());
     }
     let text = String::from_utf8_lossy(&buf);
-    let body = text.split("\r\n\r\n").nth(1).unwrap_or("");
-    let values: Vec<serde_json::Value> = serde_json::from_str(body).unwrap_or_default();
+    let body_raw = text.split("\r\n\r\n").nth(1).unwrap_or("");
+    let chunked = text.to_lowercase().contains("transfer-encoding: chunked");
+    let body = if chunked {
+        decode_chunked(body_raw)
+    } else {
+        body_raw.to_string()
+    };
+    let parsed: Result<Vec<serde_json::Value>, _> = serde_json::from_str(&body);
+    if let Err(e) = &parsed {
+        return (vec![], format!("parse error: {} body={}", e, body.chars().take(120).collect::<String>()));
+    }
+    let values = parsed.unwrap();
     let mut out = Vec::new();
     for v in values {
         let names = v.get("Names").and_then(|n| n.as_array()).cloned().unwrap_or_default();
@@ -2563,7 +2598,7 @@ fn list_docker_containers() -> (Vec<ContainerStat>, String) {
         out.push(ContainerStat { name, state, status });
     }
     if out.is_empty() {
-        (out, "No containers (or permission denied)".to_string())
+        (out, format!("empty parse body={}", body.chars().take(120).collect::<String>()))
     } else {
         (out, "ok".to_string())
     }
