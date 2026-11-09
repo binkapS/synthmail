@@ -29,6 +29,7 @@
 
   let replyText = $state("");
   let replyPending = $state(false);
+  let draftDeletePending = $state(false);
 
   async function loadFolders() {
     loadingFolders = true;
@@ -134,6 +135,20 @@
       err = e?.message ?? String(e);
     } finally {
       replyPending = false;
+    }
+  }
+
+  async function deleteDraft() {
+    if (draftDeletePending || selectedUid == null) return;
+    draftDeletePending = true;
+    try {
+      await Api.mailDraftDelete(selectedUid);
+      info = "Draft deleted.";
+      await loadMessages(selectedFolder);
+    } catch (e: any) {
+      err = e?.message ?? String(e);
+    } finally {
+      draftDeletePending = false;
     }
   }
 
@@ -290,6 +305,15 @@
               </div>
               {#if !full.seen}
                 <span class="bg-info/10 text-info text-xs font-semibold px-2.5 py-1 rounded-full border border-info/20">unread</span>
+              {/if}
+              {#if selectedFolder.toLowerCase().includes("draft")}
+                <button
+                  class="bg-danger/10 hover:bg-danger text-danger hover:text-text-primary border border-danger/20 px-3 py-1.5 rounded-xl transition-colors text-sm"
+                  onclick={deleteDraft}
+                  disabled={draftDeletePending}
+                >
+                  {draftDeletePending ? "Deleting…" : "Delete draft"}
+                </button>
               {/if}
             </div>
             <div class="mt-6 rounded-2xl border border-divider bg-appBg/40 p-6 whitespace-pre-wrap break-words text-text-primary leading-relaxed">
