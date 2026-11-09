@@ -84,6 +84,11 @@ docker compose up -d
 ./scripts/smoke.sh
 ```
 
+For a complete production deployment — secret generation, DNS,
+firewall, TLS staging → prod, first‑login rotation, 2FA, hardening,
+profiles, and troubleshooting — see
+[`docs/runbooks/production-setup.md`](docs/runbooks/production-setup.md).
+
 Then:
 
 - Edge: `http://localhost:${HTTP_PORT:-8080}` (HTTPS on `${HTTPS_PORT:-8443}`)
@@ -285,7 +290,8 @@ docker compose config # validate compose
 
 ## Documentation map
 
-- `docs/runbooks/` — security, monitoring, backup, DNS, migration, upgrades, HA
+- `docs/runbooks/` — production setup ([`production-setup.md`](docs/runbooks/production-setup.md)),
+  security, monitoring, backup, DNS, migration, upgrades, HA
 - `docs/adr/` — architecture decision records
 - `docs/phase3.md` — pure-Rust SMTP shim / Stalwart evaluation
 - `docs/releases/v1.0.0.md` — release notes
