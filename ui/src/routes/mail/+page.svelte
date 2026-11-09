@@ -27,6 +27,9 @@
   let composeBody = $state("");
   let sendPending = $state(false);
 
+  let replyText = $state("");
+  let replyPending = $state(false);
+
   async function loadFolders() {
     loadingFolders = true;
     err = "";
@@ -110,6 +113,27 @@
       err = e?.message ?? String(e);
     } finally {
       sendPending = false;
+    }
+  }
+
+  async function doReply() {
+    if (replyPending || !full) return;
+    const text = replyText.trim();
+    if (!text) return;
+    replyPending = true;
+    try {
+      await Api.mailSend({
+        from: meEmail,
+        to: full.from ?? "",
+        subject: `Re: ${full.subject ?? ""}`,
+        body: text
+      });
+      replyText = "";
+      info = "Reply sent.";
+    } catch (e: any) {
+      err = e?.message ?? String(e);
+    } finally {
+      replyPending = false;
     }
   }
 
@@ -270,6 +294,14 @@
             </div>
             <div class="mt-6 rounded-2xl border border-divider bg-appBg/40 p-6 whitespace-pre-wrap break-words text-text-primary leading-relaxed">
               {full.raw ?? ""}
+            </div>
+            <div class="mt-6 rounded-2xl border border-divider bg-appBg/40 p-5 space-y-3">
+              <Field label="Reply">
+                <Textarea bind:value={replyText} rows={4} placeholder="Write a reply…" />
+              </Field>
+              <div class="flex gap-2">
+                <Button variant="primary" onclick={doReply} disabled={replyPending}>{replyPending ? "Sending…" : "Reply"}</Button>
+              </div>
             </div>
           </div>
         {:else}

@@ -21,6 +21,10 @@
   let enrollSecret = $state("");
   let enrollUrl = $state("");
   let enroll_pending = $state(false);
+
+  let pushRows = $state<any[]>([]);
+  let pushLoading = $state(false);
+  let push_pending = $state(false);
   let verify_pending = $state(false);
   let disable_pending = $state(false);
 
@@ -30,6 +34,7 @@
     try {
       me = await Api.me();
       forced = !!me?.force_password_change;
+      void loadPush();
     } catch (e: any) { err = e?.message ?? String(e); }
     finally { loading = false; }
   }
@@ -92,6 +97,17 @@
     finally { disable_pending = false; }
   }
 
+  async function loadPush() {
+    pushLoading = true;
+    try { pushRows = await Api.listPush(); } catch (e: any) { /* optional */ }
+    finally { pushLoading = false; }
+  }
+  async function removePush(id: string) {
+    push_pending = true;
+    try { await Api.deletePush(id); await loadPush(); } catch (e: any) { err = e?.message ?? String(e); }
+    finally { push_pending = false; }
+  }
+
   $effect(() => { load(); });
 </script>
 
@@ -134,6 +150,24 @@
           <Button variant="primary" onclick={verify} disabled={verify_pending}>{verify_pending ? "Verifying…" : "Verify enrollment"}</Button>
         {/if}
       </div>
+    </div>
+
+    <div class="border-t border-divider mt-4 pt-4">
+      <h3 class="font-semibold">Push subscriptions</h3>
+      {#if pushLoading}
+        <Spinner />
+      {:else if pushRows.length === 0}
+        <p class="text-text-muted text-sm mt-2">No push subscriptions.</p>
+      {:else}
+        <div class="flex flex-col gap-2 mt-3">
+          {#each pushRows as sub}
+            <div class="flex items-center justify-between gap-3 rounded-xl border border-divider bg-appBg/40 p-3">
+              <span class="text-xs text-text-muted truncate">{sub.endpoint ?? sub.id}</span>
+              <Button variant="destructive" onclick={() => removePush(sub.id ?? "")} disabled={push_pending}>Remove</Button>
+            </div>
+          {/each}
+        </div>
+      {/if}
     </div>
   {/if}
 </Card>
