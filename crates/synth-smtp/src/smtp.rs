@@ -112,10 +112,10 @@ fn reset_after_starttls(s: &mut Session) {
 /// ESMTP parameters (`SIZE=...`, etc.). Returns the address without angle
 /// brackets (empty string for `<>`).
 pub fn extract_envelope_address(remainder: &str) -> String {
-    if let Some(start) = remainder.find('<') {
-        if let Some(end_off) = remainder[start..].find('>') {
-            return remainder[start + 1..start + end_off].to_string();
-        }
+    if let Some(start) = remainder.find('<')
+        && let Some(end_off) = remainder[start..].find('>')
+    {
+        return remainder[start + 1..start + end_off].to_string();
     }
     if let Some(colon) = remainder.find(':') {
         let s = &remainder[colon + 1..];
@@ -327,12 +327,10 @@ impl Session {
                     return Action::Reply(format!("530 5.7.0 Authentication required{hint}"));
                 }
                 // Optional SIZE parameter (RFC 1870): reject up front.
-                if let Some(size) = extract_size_param(remainder) {
-                    if size as usize > MAX_MESSAGE_SIZE_BYTES {
-                        return Action::Reply(
-                            "552 5.3.4 Message size exceeds fixed maximum".into(),
-                        );
-                    }
+                if let Some(size) = extract_size_param(remainder)
+                    && size as usize > MAX_MESSAGE_SIZE_BYTES
+                {
+                    return Action::Reply("552 5.3.4 Message size exceeds fixed maximum".into());
                 }
                 // Null sender <> is allowed (bounce/DSN path).
                 self.mail_from = Some(extract_envelope_address(remainder));

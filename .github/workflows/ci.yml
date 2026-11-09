@@ -2,39 +2,47 @@ name: CI
 on:
   push: { branches: ["main", "master"] }
   pull_request:
+
+# Pin the toolchain so clippy/rustfmt drift never silently changes what the
+# lint gate enforces (audit B-02). Bump deliberately; `cargo fmt --check`
+# and `cargo clippy -- -D warnings` must pass on the pinned version before
+# the bump lands.
+env:
+  RUST_PIN: "1.99.1"
+
 jobs:
   fmt:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with: { components: rustfmt, clippy }
+      - uses: dtolnay/rust-toolchain@v0
+        with: { toolchain: ${{ env.RUST_PIN }}, components: rustfmt, clippy }
       - run: cargo fmt --check
-      # Workspace-wide clippy with warnings denied (audit M-18). pipefail so
-      # the step fails when cargo fails even if output is truncated.
+      # Workspace-wide clippy with warnings denied (audit M-18). The step
+      # must fail when cargo fails and the *error lines* must stay visible
+      # in the log (audit B-02): no truncating the output that explains
+      # why the build broke.
       - name: clippy (workspace)
         shell: bash
-        run: |
-          set -o pipefail
-          cargo clippy --workspace --all-targets -- -D warnings 2>&1 | head -n 200
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with: { components: clippy }
+      - uses: dtolnay/rust-toolchain@v0
+        with: { toolchain: ${{ env.RUST_PIN }}, components: clippy }
       - name: test (workspace)
         shell: bash
-        run: |
-          set -o pipefail
-          cargo test --workspace 2>&1 | tail -n 100
+        run: cargo test --workspace
   migrate_check:
     runs-on: ubuntu-latest
     services:
       postgres: { image: postgres:16-alpine, env: { POSTGRES_PASSWORD: test }, ports: ["5432:5432"], options: --health-cmd="pg_isready" }
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@v0
+        with: { toolchain: ${{ env.RUST_PIN }}, components: clippy }
       - name: install sqlx-cli
         run: cargo install sqlx-cli --no-default-features --features postgres --locked
       # Actually run migrations against the service Postgres (audit M-18);

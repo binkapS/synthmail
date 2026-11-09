@@ -32,8 +32,7 @@ async fn one_read(data: &'static [u8], pending: &mut Vec<u8>) -> LineOutcome {
     let mut s = FakeStream {
         data: RefCell::new(data),
     };
-    let result = read_line(&mut s, pending).await.expect("read_line");
-    result
+    read_line(&mut s, pending).await.expect("read_line")
 }
 
 #[tokio::test]
@@ -100,8 +99,5 @@ async fn overlong_line_drained_then_next_line_clean() {
         o => panic!("{o:?}"),
     }
     // The overlong line is drained for safety; nothing about it is retained.
-    assert!(
-        !pending.iter().any(|b| *b == b'x'),
-        "no overlong residue retained"
-    );
+    assert!(!pending.contains(&b'x'), "no overlong residue retained");
 }

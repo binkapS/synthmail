@@ -28,12 +28,20 @@ use crate::smtp::{Action, MAX_LINE_LENGTH, Session};
 use synth_common::rate_limit::RateLimiter;
 
 /// One accepted connection, in either transport mode.
+///
+/// The TLS variant is boxed: `TlsStream<TcpStream>` carries ~1.2 KiB of
+/// rustls state (`TlsStream`'s inner `Server` holds certificate state,
+/// keystream keys, etc.), while a bare `TcpStream` is a few words.
+/// Unboxed, the whole enum would grow to 1224 bytes and `large_enum_variant`
+/// would fire; a connection is short-lived, so the extra indirection is
+/// acceptable for keeping the enum cheap.
 pub enum Conn {
     Plain(TcpStream),
-    Tls(TlsStream<TcpStream>),
+    Tls(Box<TlsStream<TcpStream>>),
 }
 
-// ServerX509/TcpStream are both Unpin, so Conn is too.
+// `TcpStream` is Unpin; `TlsStream<TcpStream>` contains no `Pin` state
+// either, so the boxed TLS variant and the enum as a whole are Unpin.
 impl AsyncRead for Conn {
     fn poll_read(
         self: std::pin::Pin<&mut Self>,
@@ -42,7 +50,7 @@ impl AsyncRead for Conn {
     ) -> std::task::Poll<std::io::Result<()>> {
         match self.get_mut() {
             Conn::Plain(s) => std::pin::Pin::new(s).poll_read(cx, buf),
-            Conn::Tls(s) => std::pin::Pin::new(s).poll_read(cx, buf),
+            Conn::Tls(s) => std::pin::Pin::new(s.as_mut()).poll_read(cx, buf),
         }
     }
 }
@@ -270,7 +278,7 @@ pub async fn handle_connection(mut conn: Conn, ip: IpAddr, ctx: Arc<ServiceCtx>)
                         // RFC 3207 §4: discard session state.
                         session.tls_active = true;
                         session.reset_for_tls();
-                        conn = Conn::Tls(tls_stream);
+                        conn = Conn::Tls(Box::new(tls_stream));
                     }
                     Err(e) => {
                         tracing::info!(error = %e, "STARTTLS handshake failed");

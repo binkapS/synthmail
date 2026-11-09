@@ -399,7 +399,8 @@ fn require_auth_blocks_unauth_mail() {
     let doms = vec!["example.com".to_string()];
     let r = reply_args(&mut s, b"MAIL FROM:<a@b>", true, false, &doms);
     assert!(r.starts_with("530"), "{r}");
-    assert!(!s.authenticated.is_none() == false, "no principal leaked");
+    // A rejected MAIL must not have produced a principal.
+    assert!(s.authenticated.is_none(), "no principal leaked");
     // After an (out-of-band) successful authentication the gate opens.
     s.set_authenticated("a@b".into());
     flow!(s; b"EHLO x");
