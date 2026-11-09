@@ -4,6 +4,7 @@
   import AuthGuard from "$lib/components/AuthGuard.svelte";
   import { Card, Spinner, Button } from "$lib/ui";
   import OverviewPanel from "$lib/components/admin/OverviewPanel.svelte";
+  import ServerPanel from "$lib/components/admin/ServerPanel.svelte";
   import DomainsPanel from "$lib/components/admin/DomainsPanel.svelte";
   import UsersPanel from "$lib/components/admin/UsersPanel.svelte";
   import AliasesPanel from "$lib/components/admin/AliasesPanel.svelte";
@@ -22,6 +23,7 @@
 
   const tabs: [string, string][] = [
     ["overview", "Overview"],
+    ["server", "Server"],
     ["domains", "Domains"],
     ["users", "Users"],
     ["aliases", "Aliases"],
@@ -108,6 +110,7 @@
       </aside>
       <section class="min-w-0 flex flex-col gap-4">
         {#if active === "overview"}<OverviewPanel />
+        {:else if active === "server"}<ServerPanel />
         {:else if active === "domains"}<DomainsPanel />
         {:else if active === "users"}<UsersPanel />
         {:else if active === "aliases"}<AliasesPanel />
