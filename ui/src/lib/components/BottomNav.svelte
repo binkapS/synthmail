@@ -26,7 +26,7 @@
     "/mail": "M2 4h20v16H2z m0 3 10 7 10-7",
     "/account": "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M4 20c0-4 4-7 8-7s8 3 8 7",
     "/admin": "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6 M19 12h.01 M5 12h.01",
-    "/dav/": "M15 3h6v6 M10 14 21 3 M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"
+    "/dav": "M15 3h6v6 M10 14 21 3 M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"
   };
 
   const navItems = $derived.by(() => {
@@ -36,7 +36,7 @@
     if (authed) out.push(["/mail", "Mail"]);
     if (authed) out.push(["/account", "Account"]);
     if (isAdmin) out.push(["/admin", "Admin"]);
-    out.push(["/dav/", "DAV"]);
+    out.push(["/dav", "DAV"]);
     return out;
   });
 </script>

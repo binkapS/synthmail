@@ -41,7 +41,7 @@
     {#if !token}
       <a href="/login" class="px-4 py-1.5 rounded-lg text-sm font-medium transition-all {isActive('/login') ? 'bg-brand text-text-primary shadow shadow-brand/30' : 'text-text-muted hover:text-text-primary'}">Sign in</a>
     {/if}
-    <a href="/dav/" target="_blank" rel="noopener" class="px-4 py-1.5 rounded-lg text-sm font-medium text-text-muted hover:text-text-primary transition-all">DAV</a>
+    <a href="/dav" target="_blank" rel="noopener" class="px-4 py-1.5 rounded-lg text-sm font-medium text-text-muted hover:text-text-primary transition-all">DAV</a>
   </nav>
 
   <div class="flex items-center gap-2 md:ml-3">
