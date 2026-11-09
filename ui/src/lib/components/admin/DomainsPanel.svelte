@@ -7,8 +7,10 @@
   let err = $state("");
   let new_name = $state("");
   let new_desc = $state("");
-  let detail_title = $state("");
-  let detail = $state("");
+  let modal_open = $state(false);
+  let modal_kind = $state<"dns" | "verify" | "dkim">("dns");
+  let modal_title = $state("");
+  let modal_data = $state<any>(null);
   let create_pending = $state(false);
   let row_pending = $state(false);
   let refresh_pending = $state(false);
@@ -65,8 +67,10 @@
     err = "";
     try {
       const r = await Api.domainDns(id);
-      detail_title = "DNS records";
-      detail = JSON.stringify(r, null, 2);
+      modal_kind = "dns";
+      modal_title = "DNS setup";
+      modal_data = r;
+      modal_open = true;
     } catch (e: any) {
       err = e?.message ?? String(e);
     } finally {
@@ -80,8 +84,10 @@
     err = "";
     try {
       const r = await Api.domainVerify(id);
-      detail_title = "Verify result";
-      detail = JSON.stringify(r, null, 2);
+      modal_kind = "verify";
+      modal_title = "DNS verification";
+      modal_data = r;
+      modal_open = true;
     } catch (e: any) {
       err = e?.message ?? String(e);
     } finally {
@@ -95,8 +101,10 @@
     err = "";
     try {
       const r = await Api.dkimGenerate(id, { key_type: null, selector: null });
-      detail_title = "DKIM generated";
-      detail = JSON.stringify(r, null, 2);
+      modal_kind = "dkim";
+      modal_title = "DKIM generated";
+      modal_data = r;
+      modal_open = true;
     } catch (e: any) {
       err = e?.message ?? String(e);
     } finally {
@@ -167,13 +175,71 @@
     </div>
   {/if}
 
-  {#if detail}
-    <div class="bg-surface border border-divider rounded-2xl p-4 mt-4">
-      <div class="flex items-center justify-between gap-3">
-        <h3 class="font-semibold">{detail_title}</h3>
-        <Button variant="secondary" onclick={() => (detail = "")}>Close</Button>
+  {#if modal_open && modal_data}
+    <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onclick={(e) => { if (e.target === e.currentTarget) modal_open = false; }} onkeydown={(e) => { if (e.key === 'Escape') modal_open = false; }} role="presentation">
+      <div class="bg-surface border border-divider rounded-3xl p-6 max-w-3xl w-full max-h-[85vh] overflow-y-auto shadow-2xl">
+        <div class="flex items-center justify-between gap-3 mb-4">
+          <h3 class="text-lg font-semibold">{modal_title}</h3>
+          <Button variant="secondary" onclick={() => (modal_open = false)}>Close</Button>
+        </div>
+
+        {#if modal_kind === "dns"}
+          <p class="text-text-muted text-sm mb-4">Copy each record into your DNS provider. Changes can take a few minutes to propagate.</p>
+          <div class="grid gap-3">
+            {#each Object.keys(modal_data) as key}
+              {#if key !== "domain" && key !== "mail_host"}
+                <div class="rounded-xl border border-divider bg-appBg/40 p-4">
+                  <div class="text-xs uppercase tracking-wider text-text-muted mb-1">{key.replace(/_/g, " ")}</div>
+                  <div class="font-mono text-sm break-all">{modal_data[key]}</div>
+                </div>
+              {/if}
+            {/each}
+            <div class="rounded-xl border border-divider bg-appBg/40 p-4">
+              <div class="text-xs uppercase tracking-wider text-text-muted mb-1">Domain</div>
+              <div class="font-mono text-sm">{modal_data.domain}</div>
+            </div>
+            {#if modal_data.mail_host}
+              <div class="rounded-xl border border-divider bg-appBg/40 p-4">
+                <div class="text-xs uppercase tracking-wider text-text-muted mb-1">Mail host</div>
+                <div class="font-mono text-sm">{modal_data.mail_host}</div>
+              </div>
+            {/if}
+          </div>
+          <div class="mt-4 text-xs text-text-dim">Tip: after adding records, run “Verify” to check them automatically.</div>
+
+        {:else if modal_kind === "verify"}
+          <div class="mb-4">
+            <span class="px-3 py-1 rounded-full text-xs font-semibold border {modal_data.deliverable ? 'bg-success/10 text-success border-success/20' : 'bg-danger/10 text-danger border-danger/20'}">
+              {modal_data.deliverable ? "Deliverable" : "Not ready"}
+            </span>
+            {#if modal_data.score_hint}
+              <span class="text-text-muted text-sm ml-2">{modal_data.score_hint}</span>
+            {/if}
+          </div>
+          <div class="grid gap-2">
+            {#each Object.entries(modal_data.checks ?? {}) as [name, raw]}
+              {@const info = raw as any}
+              <div class="flex items-start gap-3 rounded-xl border border-divider bg-appBg/40 p-3">
+                <span class="text-lg leading-none">{info?.ok ? "✅" : "❌"}</span>
+                <div class="min-w-0 flex-1">
+                  <div class="text-sm font-medium capitalize">{name}</div>
+                  {#if info?.records?.length}
+                    <div class="text-xs text-text-muted break-all">{info.records.join(", ")}</div>
+                  {:else}
+                    <div class="text-xs text-text-muted">No records found</div>
+                  {/if}
+                  {#if info?.selector}
+                    <div class="text-xs text-text-dim">selector: {info.selector}</div>
+                  {/if}
+                </div>
+              </div>
+            {/each}
+          </div>
+
+        {:else}
+          <pre class="bg-appBg border border-divider rounded-xl p-3 text-xs overflow-x-auto whitespace-pre-wrap">{JSON.stringify(modal_data, null, 2)}</pre>
+        {/if}
       </div>
-      <pre class="bg-appBg border border-divider rounded-xl p-3 mt-3 text-xs overflow-x-auto whitespace-pre-wrap">{detail}</pre>
     </div>
   {/if}
 </Card>
