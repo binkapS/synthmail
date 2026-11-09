@@ -47,6 +47,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/v1/quota", get(quota_overview))
         .route("/api/v1/queues", get(queue_status))
+.route("/api/v1/admin/server", get(admin_server_stats))
         .route("/api/v1/dkim/{domain_id}/generate", post(dkim_generate))
         .route("/api/v1/dkim/{domain_id}", get(dkim_get))
         .route(
@@ -2397,5 +2398,173 @@ mod tests {
     fn dmarc_whitelist() {
         assert!(check_dmarc_policy("reject").is_ok());
         assert!(check_dmarc_policy("whatever").is_err());
+    }
+}
+
+
+#[derive(serde::Serialize)]
+struct DiskStat {
+    path: String,
+    total_bytes: u64,
+    used_bytes: u64,
+    available_bytes: u64,
+}
+
+#[derive(serde::Serialize)]
+struct ContainerStat {
+    name: String,
+    state: String,
+    status: String,
+}
+
+#[derive(serde::Serialize)]
+struct ServerStats {
+    hostname: String,
+    platform: String,
+    cpu_cores: usize,
+    loadavg_1: f64,
+    loadavg_5: f64,
+    loadavg_15: f64,
+    memory_total_bytes: u64,
+    memory_available_bytes: u64,
+    memory_used_bytes: u64,
+    disks: Vec<DiskStat>,
+    containers: Vec<ContainerStat>,
+    containers_note: String,
+}
+
+async fn admin_server_stats(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ErrorResponse> {
+    let p = authenticate(&s, &headers).await?;
+    if !p.is_admin() {
+        return Err(ErrorResponse(AppError::Forbidden));
+    }
+
+    let hostname = std::fs::read_to_string("/proc/sys/kernel/hostname")
+        .map(|t| t.trim().to_string())
+        .unwrap_or_else(|_| "unknown".to_string());
+
+    let platform = std::fs::read_to_string("/etc/os-release")
+        .ok()
+        .and_then(|t| t.lines().find(|l| l.starts_with("PRETTY_NAME=")).map(|l| l.trim_start_matches("PRETTY_NAME=").trim_matches('"').to_string()))
+        .unwrap_or_else(|| "linux".to_string());
+
+    let cpu_cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+
+    let mut loadavg_1 = 0.0;
+    let mut loadavg_5 = 0.0;
+    let mut loadavg_15 = 0.0;
+    if let Ok(t) = std::fs::read_to_string("/proc/loadavg") {
+        let parts: Vec<&str> = t.split_whitespace().collect();
+        if parts.len() >= 3 {
+            loadavg_1 = parts[0].parse().unwrap_or(0.0);
+            loadavg_5 = parts[1].parse().unwrap_or(0.0);
+            loadavg_15 = parts[2].parse().unwrap_or(0.0);
+        }
+    }
+
+    let mut mem_total = 0u64;
+    let mut mem_available = 0u64;
+    if let Ok(t) = std::fs::read_to_string("/proc/meminfo") {
+        for line in t.lines() {
+            if let Some(rest) = line.strip_prefix("MemTotal:") {
+                mem_total = parse_kb(rest) * 1024;
+            } else if let Some(rest) = line.strip_prefix("MemAvailable:") {
+                mem_available = parse_kb(rest) * 1024;
+            }
+        }
+    }
+    let mem_used = mem_total.saturating_sub(mem_available);
+
+    fn parse_kb(s: &str) -> u64 {
+        s.split_whitespace().next().and_then(|v| v.parse().ok()).unwrap_or(0)
+    }
+
+    let mut disks = Vec::new();
+    for path in ["/", "/var/vmail", "/data"] {
+        if let Some(d) = statvfs_path(path) {
+            disks.push(d);
+        }
+    }
+
+    let (containers, containers_note) = list_docker_containers();
+
+    let stats = ServerStats {
+        hostname,
+        platform,
+        cpu_cores,
+        loadavg_1,
+        loadavg_5,
+        loadavg_15,
+        memory_total_bytes: mem_total,
+        memory_available_bytes: mem_available,
+        memory_used_bytes: mem_used,
+        disks,
+        containers,
+        containers_note,
+    };
+    Ok(Json(serde_json::to_value(stats).unwrap_or(serde_json::json!({}))))
+}
+
+fn statvfs_path(path: &str) -> Option<DiskStat> {
+    if !std::path::Path::new(path).exists() {
+        return None;
+    }
+    let cpath = std::ffi::CString::new(path).ok()?;
+    let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
+    let rc = unsafe { libc::statvfs(cpath.as_ptr(), &mut st) };
+    if rc != 0 {
+        return None;
+    }
+    let fr = st.f_frsize as u64;
+    let total = st.f_blocks as u64 * fr;
+    let available = st.f_bavail as u64 * fr;
+    let used = total.saturating_sub(st.f_bfree as u64 * fr);
+    Some(DiskStat {
+        path: path.to_string(),
+        total_bytes: total,
+        used_bytes: used,
+        available_bytes: available,
+    })
+}
+
+fn list_docker_containers() -> (Vec<ContainerStat>, String) {
+    use std::io::{Read, Write};
+    use std::os::unix::net::UnixStream;
+    let socket = std::env::var("DOCKER_SOCKET").unwrap_or_else(|_| "/var/run/docker.sock".to_string());
+    if !std::path::Path::new(&socket).exists() {
+        return (vec![], "Docker socket not mounted".to_string());
+    }
+    let mut stream = match UnixStream::connect(&socket) {
+        Ok(s) => s,
+        Err(_) => return (vec![], "Cannot connect to Docker socket".to_string()),
+    };
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(3)));
+    let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(3)));
+    let req = "GET /containers/json HTTP/1.1\r\nHost: docker\r\nConnection: close\r\n\r\n";
+    if stream.write_all(req.as_bytes()).is_err() {
+        return (vec![], "Failed to query Docker".to_string());
+    }
+    let mut buf = Vec::new();
+    if stream.read_to_end(&mut buf).is_err() {
+        return (vec![], "Failed to read Docker response".to_string());
+    }
+    let text = String::from_utf8_lossy(&buf);
+    let body = text.split("\r\n\r\n").nth(1).unwrap_or("");
+    let values: Vec<serde_json::Value> = serde_json::from_str(body).unwrap_or_default();
+    let mut out = Vec::new();
+    for v in values {
+        let names = v.get("Names").and_then(|n| n.as_array()).cloned().unwrap_or_default();
+        let name = names.first().and_then(|n| n.as_str()).unwrap_or("").trim_start_matches('/').to_string();
+        let state = v.get("State").and_then(|s| s.as_str()).unwrap_or("").to_string();
+        let status = v.get("Status").and_then(|s| s.as_str()).unwrap_or("").to_string();
+        out.push(ContainerStat { name, state, status });
+    }
+    if out.is_empty() {
+        (out, "No containers (or permission denied)".to_string())
+    } else {
+        (out, "ok".to_string())
     }
 }

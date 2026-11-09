@@ -3086,6 +3086,7 @@ dependencies = [
  "chrono",
  "clap",
  "jsonwebtoken",
+ "libc",
  "prometheus-client",
  "rand 0.8.8",
  "redis",

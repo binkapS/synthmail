@@ -195,6 +195,8 @@ services:
     volumes:
       # Shared with opendkim so newly generated keys are signed immediately (audit H-07).
       - dkim:/var/dkim-sync
+      # Optional: expose Docker socket for in-app container monitoring (read-only).
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }

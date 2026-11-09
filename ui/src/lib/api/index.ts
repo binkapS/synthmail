@@ -173,6 +173,10 @@ export async function saveVacation(user_id: string, body: unknown): Promise<unkn
 }
 
 // ----- Admin -----
+export async function serverStats(): Promise<unknown> {
+  return requestJson("GET", apiUrl("/admin/server"));
+}
+
 export async function listAudit(limit?: number): Promise<unknown[]> {
   const url = auditUrl(limit ?? null);
   return requestJson<unknown[]>("GET", url);
