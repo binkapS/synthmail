@@ -1,5 +1,11 @@
 # SynthMail Action Plan
 
+> **Status:** §§1–3 executed (`d61bb8c`, 2026-11-09); §§4–10 open.
+> Moved from the repository root (`plan.md`) to `docs/plans/` by
+> audit D-02 so the working plan lives with the runbooks and is
+> tracked without floating at the top level. Kept here as the
+> operator's pre-production checklist.
+
 ## Goal
 
 Harden the existing Docker-based deployment for production mail delivery and

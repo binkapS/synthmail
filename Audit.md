@@ -2,6 +2,19 @@
 
 **Date:** 2026-11-09 · **Auditor:** Agnes · **Branch:** `main` @ `1c3c33c`
 
+> **Status (day 4, complete):** all findings remediated in-tree.
+> Day 1: B-01/B-02/B-03. Day 2: S-01…S-04 + L-01…L-04.
+> Day 4: B-04 (`docker/synth-smtp/Dockerfile` + compose `synth-smtp`
+> service on 127.0.0.1:2525 + CI `buildx` matrix + `build-images.sh`
+> + README services/TLS section) and D-01 (populated `docs/history/`
+> — [`README.md`](docs/history/README.md) index +
+> dated snapshot [`2026-11-09-audit.md`](docs/history/2026-11-09-audit.md))
+> and D-02 (`plan.md` → [`docs/plans/network-harden.md`]
+> with a status header; §§1–3 executed in `d61bb8c`) and D-03
+> (nginx comments now say Svelte 5 SPA). `docker compose config`
+> passes; `cargo clippy --workspace --all-targets -- -D warnings`,
+> `cargo test --workspace` and `cargo fmt --check` remain green.
+>
 > **Status (day 2, full):** S-01…S-04 + L-01…L-04 all remediated in-tree.
 > (L-04: `cargo audit` for the Rust lockfile + `npm audit` for the UI
 > lockfile wired into a new `audit-deps` CI job via
@@ -51,7 +64,7 @@
 > CI toolchain pinned to `1.99.1` with un-truncated clippy/test logs.
 > `cargo clippy --workspace --all-targets -- -D warnings`,
 > `cargo fmt --check` and `cargo test --workspace` all pass. Remaining
-> items: B-04, D-01…D-03.
+> items: — (closed by the day-4 pass above).
 >
 > **Note:** the working tree also carries uncommitted Plan work
 > (host-networking §1, fail2ban §2, Docker-socket opt-in §3 — see

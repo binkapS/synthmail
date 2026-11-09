@@ -27,6 +27,7 @@ TAG="${TAG:-latest}"
 declare -A DOCKERFILES=(
   [synth-control]="docker/synth-control/Dockerfile:."
   [synth-webmail]="docker/synth-webmail/Dockerfile:."
+  [synth-smtp]="docker/synth-smtp/Dockerfile:."
   [synth-watchdog]="docker/synth-watchdog/Dockerfile:."
   [synth-ui]="docker/synth-ui/Dockerfile:."
   [backup]="docker/backup/Dockerfile:./docker/backup"

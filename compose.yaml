@@ -336,6 +336,65 @@ services:
       timeout: 5s
     restart: unless-stopped
 
+  synth-smtp:
+    build:
+      context: .
+      dockerfile: docker/synth-smtp/Dockerfile
+    # ESMTP submission service: STARTTLS + AUTH (SASL PLAIN/LOGIN),
+    # Redis-backed queue, Postfix relay. Loopback-only publish
+    # (audit H-05) — to expose publicly, connect it through a
+    # deliberate firewall rule (the per-connection/auth rate limits are
+    # Redis-shared, but network-level exposure is a separate decision).
+    ports:
+      - "127.0.0.1:2525:2525"
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgres://synth:synth_dev@postgres:5432/synthmail}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      # Fail fast if unset (audit C-05) — same policy as synth-control/webmail.
+      - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET must be set}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set (64 hex chars)}
+      - MAIL_HOST=${MAIL_HOST:-mail.example.com}
+      - MAIL_DOMAIN=${MAIL_DOMAIN:-example.com}
+    volumes:
+      # TLS material for STARTTLS mode (fail-closed when TLS flags are set
+      # but files are missing). Mounted read-only; acme populates these.
+      - certs:/etc/letsencrypt:ro
+    command:
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "2525"
+      - --redis-url
+      - ${REDIS_URL:-redis://redis:6379}
+      - --database-url
+      - ${DATABASE_URL:-postgres://synth:synth_dev@postgres:5432/synthmail}
+      - --server-name
+      - ${MAIL_HOST:-mail.example.com}
+      # TLS + AUTH: the listener only advertises STARTTLS/AUTH when the
+      # operator passes --tls-cert/--tls-key (paths under
+      # /etc/letsencrypt/live/${MAIL_HOST}/). Default is no-TLS
+      # trusted-mailnet only (relay restricted to MAIL_DOMAIN, never an
+      # open relay). To enable STARTTLS+AUTH, append e.g.:
+      #   --tls-cert /etc/letsencrypt/live/$MAIL_HOST/fullchain.pem
+      #   --tls-key /etc/letsencrypt/live/$MAIL_HOST/privkey.pem
+      #   --require-auth
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [mailnet]
+    extra_hosts:
+      # Lets containerised relays reach a host-networked postfix
+      # (MAIL_EDGE_NETWORK=host) via host.docker.internal.
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      # SMTP has no HTTP /healthz: TCP-probe the 220 greeting (same
+      # pattern as the synth-smtp Dockerfile HEALTHCHECK).
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/2525' 2>/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+    restart: unless-stopped
+
   postgres:
     image: postgres:16-alpine
     environment:

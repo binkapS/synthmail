@@ -117,6 +117,7 @@ Key environment variables (full list in `.env.example`):
 | edge (nginx) | `HTTP_PORT` (8080) / `HTTPS_PORT` (8443) | public entrypoint |
 | synth-control | 8000 | admin REST API (`/api/v1`) |
 | synth-webmail | 3000 | webmail + JMAP (`/api/v1/mail`, `/jmap`) |
+| **synth-smtp** | **127.0.0.1:2525** | ESMTP submission: STARTTLS + AUTH (SASL PLAIN/LOGIN), Redis queue → Postfix relay. Loopback-published only; see TLS section below. |
 | synth-ui (nginx) | 127.0.0.1:3002 | admin SPA, proxied by edge `/admin/` |
 | synth-watchdog | 8081 (internal) | health polling, ACME challenge glue |
 | postgres | 5432 (loopback) | |
@@ -133,6 +134,40 @@ docker compose up -d
 Dovecot (`ssl = required`), Postfix (SASL only over TLS) and edge fail closed
 without certificates. For production, remove `--staging` from the ACME
 entrypoint and re-run. There is no DNS-01 automation; HTTP-01 only.
+
+### synth-smtp TLS + authenticated submission
+
+The `synth-smtp` submission listener (127.0.0.1:2525) only offers
+STARTTLS/AUTH when the operator passes `--tls-cert`/`--tls-key`
+(paths under `/etc/letsencrypt/live/${MAIL_HOST}/`) and
+`--require-auth`. The shipped compose configuration runs it **no-TLS,
+trusted-mailnet only**: unauthenticated sessions may deliver only to
+`MAIL_DOMAIN` (never an open relay), which is safe as a same-host
+internal forwarder but is not a replacement for authenticated external
+submission.
+
+To enable STARTTLS + AUTH on `synth-smtp`, add to its `command:`
+in `compose.yaml`:
+
+```yaml
+    command:
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "2525"
+      # ... existing redis-url / database-url / server-name args ...
+      - --tls-cert
+      - /etc/letsencrypt/live/${MAIL_HOST}/fullchain.pem
+      - --tls-key
+      - /etc/letsencrypt/live/${MAIL_HOST}/privkey.pem
+      - --require-auth
+```
+
+The binary fails closed if those files cannot be loaded. External
+submission clients then use `mailhost:2525` with `STARTTLS` + SASL
+PLAIN/LOGIN verified against the same Postgres user store as the
+control plane (`users.password_hash`, Argon2id, dummy-hash timing
+parity, Redis-shared per-IP attempt budget).
 
 ## Admin UI
 
@@ -216,7 +251,8 @@ cargo run -p synth-control -- --migrate
 - Mail configs: `postfix check`, `rspamadm configtest`, `doveconf -n`
 
 CI (`.github/workflows/ci.yml`) runs fmt, clippy, tests, migrations, image
-builds (control, webmail, UI) and config smoke.
+builds (control, webmail, smtp, UI), dependency audits (`cargo audit` +
+`npm audit`) and config smoke.
 
 ## Docker images
 
@@ -253,7 +289,11 @@ docker compose config # validate compose
 - `docs/adr/` — architecture decision records
 - `docs/phase3.md` — pure-Rust SMTP shim / Stalwart evaluation
 - `docs/releases/v1.0.0.md` — release notes
-- `docs/history/` — audit records (AUDIT, AUDIT-RECHECK)
+- `docs/history/` — audit record index ([README](docs/history/README.md))
+  and dated audit snapshots, e.g. [`2026-11-09-audit.md`](docs/history/2026-11-09-audit.md)
+  (canonical copy: [`Audit.md`](Audit.md))
+- `docs/plans/network-harden.md` — pre-production hardening plan
+  (§§1–3 executed, §4–10 open)
 - `docs/svelte-rebuild-plan.md` — front-end rebuild plan
 - `CHANGELOG.md` — curated release record
 
