@@ -11,7 +11,7 @@ use crate::app::AppState;
 use synth_common::{AppError, ErrorResponse};
 
 pub fn router(state: AppState) -> Router {
-    Router::new()
+    let app = Router::new()
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
         .route("/metrics", get(metrics))
@@ -39,14 +39,78 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/caldav/query", get(crate::carddav::query_events))
         .route("/dav", get(crate::carddav::dav_discovery))
         .route("/.well-known/carddav", get(crate::carddav::dav_discovery))
-        .route("/.well-known/caldav", get(crate::carddav::dav_discovery))
-        .layer(
+        .route("/.well-known/caldav", get(crate::carddav::dav_discovery));
+
+    // Audit S-01: the webmail/JMAP router is same-origin with the admin UI
+    // (both served through the nginx edge vhost). `Any`/`Any`/`Any` CORS
+    // meant *every* site the operator could load could probe the API
+    // (Allow headers, folder listings, message subjects) from its own
+    // origin. When `CORS_ORIGINS` is set (empty list → `Any`,
+    // comma-list → restrict to those origins), apply a matching layer;
+    // when unset, no CORS layer is installed, so cross-origin callers
+    // are simply not served.
+    let (kind, list) = parse_cors_origins(Some(state.config.cors_origins.as_str()));
+    let app = match kind {
+        CorsOrigins::All => app.layer(
             CorsLayer::new()
                 .allow_origin(Any)
                 .allow_methods(Any)
                 .allow_headers(Any),
-        )
-        .with_state(state)
+        ),
+        CorsOrigins::List => {
+            // `allow_origin` wants `Into<AllowOrigin>`; the `HeaderValue`
+            // from a CORS `Origin` header is an opaque token we treat as a
+            // plain string, so build the allow-list of `HeaderValue`s.
+            let origins: Vec<axum::http::HeaderValue> = list
+                .iter()
+                .filter_map(|o| axum::http::HeaderValue::from_str(o).ok())
+                .collect();
+            app.layer(
+                CorsLayer::new()
+                    .allow_origin(origins)
+                    .allow_methods([axum::http::Method::GET, axum::http::Method::POST])
+                    .allow_headers([axum::http::header::AUTHORIZATION]),
+            )
+        }
+    };
+
+    app.with_state(state)
+}
+
+/// Parsed form of the `CORS_ORIGINS` env var (see `router`).
+///
+/// `All` means the layer is configured with `Any` origins (legacy, pre-S-01
+/// behaviour); `List` means a comma-separated allow-list is configured.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CorsOrigins {
+    /// `*` / empty → allow any origin (previous default; kept behind a
+    /// flag for operators who need it; the default is now "no CORS at all").
+    All,
+    /// Comma-separated allow-list.
+    List,
+}
+
+/// Resolve the `CORS_ORIGINS` env var into the parse form the router
+/// consumes. The webmail backend runs behind the nginx edge on the same
+/// origin as the UI by default; set the env var to opt in to a
+/// cross-origin allow-list.
+pub fn parse_cors_origins(raw: Option<&str>) -> (CorsOrigins, Vec<String>) {
+    let Some(raw) = raw else {
+        return (CorsOrigins::All, Vec::new());
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed == "*" {
+        return (CorsOrigins::All, Vec::new());
+    }
+    let list: Vec<String> = trimmed
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if list.is_empty() {
+        return (CorsOrigins::All, Vec::new());
+    }
+    (CorsOrigins::List, list)
 }
 
 /// Authenticated webmail user (C-04).
@@ -448,12 +512,28 @@ struct LoginResp {
 }
 
 fn client_ip(headers: &HeaderMap) -> Option<String> {
+    // Audit S-02: the nginx edge sets `X-Real-IP` from `$remote_addr` on
+    // every proxied location, so it is authoritative. Trust it first;
+    // fall back to the *right-most* X-Forwarded-For entry (the real
+    // client in the single-edge-proxy layout), so a spoofed
+    // `XFF: 8.8.8.8, ...` chain cannot be read as the real client.
+    if let Some(v) = headers
+        .get("x-real-ip")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        return Some(v.to_string());
+    }
     headers
         .get("x-forwarded-for")
         .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.split(',').next())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
+        .and_then(|v| {
+            v.rsplit(',')
+                .next()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
 }
 
 /// C-03: webmail login enforces the SAME TOTP (and rate limiting) as the
@@ -799,5 +879,39 @@ mod tests {
                 .is_empty()
         );
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // Audit S-01: CORS parsing regression tests. The default (unset env)
+    // falls back to `Any` for compatibility; the CSV allow-list path must
+    // strip whitespace, skip empty entries, and reject `*`.
+    #[test]
+    fn cors_parse_unset_falls_back_to_any() {
+        let (kind, list) = parse_cors_origins(None);
+        assert!(matches!(kind, CorsOrigins::All));
+        assert!(list.is_empty());
+    }
+
+    #[test]
+    fn cors_parse_star_or_blank_means_any() {
+        assert!(matches!(parse_cors_origins(Some("*")).0, CorsOrigins::All));
+        assert!(matches!(parse_cors_origins(Some("")).0, CorsOrigins::All));
+        assert!(matches!(
+            parse_cors_origins(Some("   ")).0,
+            CorsOrigins::All
+        ));
+    }
+
+    #[test]
+    fn cors_parse_csv_list_restricts_origins() {
+        let (kind, list) = parse_cors_origins(Some("https://a.test, https://b.test"));
+        assert!(matches!(kind, CorsOrigins::List));
+        assert_eq!(list, vec!["https://a.test", "https://b.test"]);
+    }
+
+    #[test]
+    fn cors_parse_csv_skips_empty() {
+        let (kind, list) = parse_cors_origins(Some("https://a.test,,https://b.test"));
+        assert!(matches!(kind, CorsOrigins::List));
+        assert_eq!(list, vec!["https://a.test", "https://b.test"]);
     }
 }

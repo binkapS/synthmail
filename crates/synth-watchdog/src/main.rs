@@ -64,6 +64,10 @@ async fn main() -> anyhow::Result<()> {
         cfg.redis_url = v;
     }
 
+    // Audit S-03: warn at startup if the configured NTFY_TOPIC looks too
+    // weak to be safe on a public broker (readable by anyone who guesses it).
+    validate_ntfy_topic();
+
     let pool = PgPool::connect(&cfg.database_url)
         .await
         .map_err(|e| anyhow::anyhow!(e))?;
@@ -181,17 +185,69 @@ async fn alert(service: &str, detail: &str) {
     if let Ok(url) = std::env::var("ALERT_WEBHOOK_URL") {
         let body =
             serde_json::json!({"service": service, "detail": detail, "at": chrono::Utc::now()});
-        let _ = reqwest::Client::new().post(&url).json(&body).send().await;
+        match reqwest::Client::new().post(&url).json(&body).send().await {
+            Ok(_) => {}
+            Err(e) => tracing::error!(error = %e, url, "webhook alert dispatch failed"),
+        }
     }
+    // Audit S-03: topic + base URL are validated at startup; here we only
+    // read and post. A public `ntfy.sh` topic is readable by anyone who
+    // knows the topic string, so the operator should run a private ntfy
+    // (or a self-hosted one) for any deployment the mail host fronts.
     if let Ok(topic) = std::env::var("NTFY_TOPIC") {
-        let url = format!("https://ntfy.sh/{}/", topic);
-        let _ = reqwest::Client::new()
+        let base = std::env::var("NTFY_BASE_URL").unwrap_or_else(|_| "https://ntfy.sh".into());
+        let url = format!("{}/{}/", base.trim_end_matches('/'), topic);
+        match reqwest::Client::new()
             .post(&url)
             .body(format!("SynthMail: {} — {}", service, detail))
             .send()
-            .await;
+            .await
+        {
+            Ok(resp) => {
+                if !resp.status().is_success() {
+                    tracing::warn!(
+                        status = %resp.status(),
+                        topic,
+                        "ntfy alert dispatch returned non-success"
+                    );
+                }
+            }
+            Err(e) => tracing::error!(error = %e, topic, "ntfy alert dispatch failed"),
+        }
     }
     tracing::warn!(service, detail, "alert dispatched (webhook/ntfy)");
+}
+
+/// Startup-time check that the NTFY_TOPIC is plausible. A 4-character
+/// topic like `mail` is trivially guessable; the `https://ntfy.sh/mail`
+/// stream would be readable by anyone who enumerates. Reject topics that
+/// are too short or that contain characters ntfy does not accept.
+fn validate_ntfy_topic() {
+    let Ok(topic) = std::env::var("NTFY_TOPIC") else {
+        return;
+    };
+    let trimmed = topic.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    let chars_ok = trimmed
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '-' | '_' | '.'));
+    if !chars_ok {
+        tracing::warn!(
+            topic,
+            "NTFY_TOPIC contains characters ntfy rejects; using a private \
+             ntfy (or base-URL self-host) is strongly recommended"
+        );
+        return;
+    }
+    if trimmed.len() < 12 {
+        tracing::warn!(
+            topic,
+            "NTFY_TOPIC is too short; anyone can read a public ntfy stream \
+             by guessing the topic. Use a private ntfy for production mail hosts."
+        );
+    }
 }
 
 async fn acme_challenge(
@@ -323,6 +379,22 @@ mod tests {
             ok,
             latency_ms: 1,
             checked_at: chrono::Utc::now(),
+        }
+    }
+
+    #[test]
+    fn ntfy_topic_validation_paths() {
+        // Audit S-03: each rejection / accept class runs without panic.
+        unsafe {
+            std::env::remove_var("NTFY_TOPIC");
+            validate_ntfy_topic(); // unset → no-op
+            std::env::set_var("NTFY_TOPIC", "mail"); // too short → warn
+            validate_ntfy_topic();
+            std::env::set_var("NTFY_TOPIC", "bad space"); // bad char → warn
+            validate_ntfy_topic();
+            std::env::set_var("NTFY_TOPIC", "abcdefgh123456"); // OK
+            validate_ntfy_topic();
+            std::env::remove_var("NTFY_TOPIC");
         }
     }
 

@@ -41,6 +41,15 @@ pub struct Config {
     pub min_password_len: usize,
     #[serde(default)]
     pub encryption_key: String,
+    /// CORS allow-list for the webmail/JMAP backend. Empty = allow
+    /// `Any` (legacy behaviour, audit S-01). `*` = allow any origin
+    /// explicitly. A comma-separated allow-list = restrict to those
+    /// origins. Populated from `CORS_ORIGINS` in `from_env`.
+    #[serde(default)]
+    pub cors_origins: String,
+    /// Parsed form of `cors_origins` — see `synth_webmail::routes`.
+    #[serde(default, skip_deserializing)]
+    pub cors_origins_list: Vec<String>,
 }
 
 fn default_host() -> String {
@@ -96,6 +105,8 @@ impl std::default::Default for Config {
             totp_enforced_for_admin: true,
             min_password_len: default_min_password_len(),
             encryption_key: String::new(),
+            cors_origins: String::new(),
+            cors_origins_list: Vec::new(),
         }
     }
 }
@@ -171,6 +182,14 @@ impl Config {
         }
         if let Ok(v) = std::env::var("ENCRYPTION_KEY") {
             cfg.encryption_key = v;
+        }
+        if let Ok(v) = std::env::var("CORS_ORIGINS") {
+            cfg.cors_origins = v.clone();
+            cfg.cors_origins_list = v
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty() && s != "*")
+                .collect();
         }
         cfg
     }

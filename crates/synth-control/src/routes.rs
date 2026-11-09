@@ -47,7 +47,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/v1/quota", get(quota_overview))
         .route("/api/v1/queues", get(queue_status))
-.route("/api/v1/admin/server", get(admin_server_stats))
+        .route("/api/v1/admin/server", get(admin_server_stats))
         .route("/api/v1/dkim/{domain_id}/generate", post(dkim_generate))
         .route("/api/v1/dkim/{domain_id}", get(dkim_get))
         .route(
@@ -104,13 +104,40 @@ async fn count_requests(req: axum::http::Request<axum::body::Body>, next: Next) 
 
 // ---------- Helpers ----------
 
+/// Audit S-02: trustworthy client IP. The nginx edge sets `X-Real-IP`
+/// from `$remote_addr` on every proxied location, which is authoritative
+/// (the edge sets it itself, so a caller cannot forge it).
+///
+/// `X-Forwarded-For` is a fallback: we read its *right-most* entry,
+/// which is the real client in the single-edge-proxy layout. An
+/// unauthenticated caller can only prepend spoofed entries to XFF;
+/// reading right-most discards those prepended entries.
 fn client_ip(headers: &HeaderMap) -> Option<String> {
+    // 1) The trusted edge sets X-Real-IP from $remote_addr. This is the
+    //    strongest signal: it is authoritative when the request is
+    //    proxied through the edge vhost.
+    if let Some(v) = headers
+        .get("x-real-ip")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        return Some(v.to_string());
+    }
+    // 2) Fall back to the right-most entry of X-Forwarded-For. In the
+    //    single-edge-proxy layout the right-most entry is the real
+    //    client. We never trust any entry to the right of the
+    //    right-most (spoofed prepended entries are discarded), so
+    //    `XFF: attacker, 1.2.3.4` cannot masquerade as 1.2.3.4.
     headers
         .get("x-forwarded-for")
         .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.split(',').next())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
+        .and_then(|v| {
+            v.rsplit(',')
+                .next()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
 }
 
 fn dummy_hash() -> &'static str {
@@ -1326,15 +1353,14 @@ async fn quota_overview(
     headers: HeaderMap,
 ) -> Result<Json<Vec<serde_json::Value>>, ErrorResponse> {
     require_admin_principal(&s, &headers, false).await?;
-    let rows: Vec<(String, i32, i32, f64)> =
-        sqlx::query_as(
-            "SELECT email::text, quota_mb, used_mb,
+    let rows: Vec<(String, i32, i32, f64)> = sqlx::query_as(
+        "SELECT email::text, quota_mb, used_mb,
                     CASE WHEN quota_mb>0 THEN (used_mb*100.0/quota_mb)::float8 ELSE 0::float8 END
                  FROM users ORDER BY 4 DESC LIMIT 100",
-        )
-        .fetch_all(&s.pool)
-        .await
-        .map_err(|e| ErrorResponse(AppError::Database(e)))?;
+    )
+    .fetch_all(&s.pool)
+    .await
+    .map_err(|e| ErrorResponse(AppError::Database(e)))?;
     Ok(Json(
         rows.into_iter()
             .map(|(email, quota, used, pct)| serde_json::json!({"email": email, "quota_mb": quota, "used_mb": used, "pct": pct}))
@@ -2401,7 +2427,6 @@ mod tests {
     }
 }
 
-
 #[derive(serde::Serialize)]
 struct DiskStat {
     path: String,
@@ -2448,10 +2473,18 @@ async fn admin_server_stats(
 
     let platform = std::fs::read_to_string("/etc/os-release")
         .ok()
-        .and_then(|t| t.lines().find(|l| l.starts_with("PRETTY_NAME=")).map(|l| l.trim_start_matches("PRETTY_NAME=").trim_matches('"').to_string()))
+        .and_then(|t| {
+            t.lines().find(|l| l.starts_with("PRETTY_NAME=")).map(|l| {
+                l.trim_start_matches("PRETTY_NAME=")
+                    .trim_matches('"')
+                    .to_string()
+            })
+        })
         .unwrap_or_else(|| "linux".to_string());
 
-    let cpu_cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+    let cpu_cores = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
 
     let mut loadavg_1 = 0.0;
     let mut loadavg_5 = 0.0;
@@ -2479,7 +2512,10 @@ async fn admin_server_stats(
     let mem_used = mem_total.saturating_sub(mem_available);
 
     fn parse_kb(s: &str) -> u64 {
-        s.split_whitespace().next().and_then(|v| v.parse().ok()).unwrap_or(0)
+        s.split_whitespace()
+            .next()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0)
     }
 
     let mut disks = Vec::new();
@@ -2505,7 +2541,9 @@ async fn admin_server_stats(
         containers,
         containers_note,
     };
-    Ok(Json(serde_json::to_value(stats).unwrap_or(serde_json::json!({}))))
+    Ok(Json(
+        serde_json::to_value(stats).unwrap_or(serde_json::json!({})),
+    ))
 }
 
 fn statvfs_path(path: &str) -> Option<DiskStat> {
@@ -2539,7 +2577,12 @@ fn decode_chunked(input: &str) -> String {
         while j + 1 < bytes.len() && !(bytes[j] == b'\r' && bytes[j + 1] == b'\n') {
             j += 1;
         }
-        let size_str = std::str::from_utf8(&bytes[i..j]).unwrap_or("").split(';').next().unwrap_or("").trim();
+        let size_str = std::str::from_utf8(&bytes[i..j])
+            .unwrap_or("")
+            .split(';')
+            .next()
+            .unwrap_or("")
+            .trim();
         let size = usize::from_str_radix(size_str, 16).unwrap_or(0);
         i = j + 2;
         if size == 0 {
@@ -2558,7 +2601,26 @@ fn decode_chunked(input: &str) -> String {
 fn list_docker_containers() -> (Vec<ContainerStat>, String) {
     use std::io::{Read, Write};
     use std::os::unix::net::UnixStream;
-    let socket = std::env::var("DOCKER_SOCKET").unwrap_or_else(|_| "/var/run/docker.sock".to_string());
+
+    // Plan §3: container stats are opt-in. The Docker socket is only consulted
+    // when ENABLE_CONTAINER_STATS is explicitly 1/true. Without it the admin
+    // panel reports a clean "intentionally disabled" note rather than
+    // implying broken monitoring, so operators who deliberately omit the
+    // /var/run/docker.sock mount get an intentional-off message, not a
+    // missing-data error. The host-level CPU/RAM/disk metrics above this
+    // section remain available either way.
+    let enabled = std::env::var("ENABLE_CONTAINER_STATS")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if !enabled {
+        return (
+            vec![],
+            "Container view intentionally disabled (set ENABLE_CONTAINER_STATS=1 and mount /var/run/docker.sock to enable).".to_string(),
+        );
+    }
+
+    let socket =
+        std::env::var("DOCKER_SOCKET").unwrap_or_else(|_| "/var/run/docker.sock".to_string());
     if !std::path::Path::new(&socket).exists() {
         return (vec![], "Docker socket not mounted".to_string());
     }
@@ -2586,19 +2648,53 @@ fn list_docker_containers() -> (Vec<ContainerStat>, String) {
     };
     let parsed: Result<Vec<serde_json::Value>, _> = serde_json::from_str(&body);
     if let Err(e) = &parsed {
-        return (vec![], format!("parse error: {} body={}", e, body.chars().take(120).collect::<String>()));
+        return (
+            vec![],
+            format!(
+                "parse error: {} body={}",
+                e,
+                body.chars().take(120).collect::<String>()
+            ),
+        );
     }
     let values = parsed.unwrap();
     let mut out = Vec::new();
     for v in values {
-        let names = v.get("Names").and_then(|n| n.as_array()).cloned().unwrap_or_default();
-        let name = names.first().and_then(|n| n.as_str()).unwrap_or("").trim_start_matches('/').to_string();
-        let state = v.get("State").and_then(|s| s.as_str()).unwrap_or("").to_string();
-        let status = v.get("Status").and_then(|s| s.as_str()).unwrap_or("").to_string();
-        out.push(ContainerStat { name, state, status });
+        let names = v
+            .get("Names")
+            .and_then(|n| n.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let name = names
+            .first()
+            .and_then(|n| n.as_str())
+            .unwrap_or("")
+            .trim_start_matches('/')
+            .to_string();
+        let state = v
+            .get("State")
+            .and_then(|s| s.as_str())
+            .unwrap_or("")
+            .to_string();
+        let status = v
+            .get("Status")
+            .and_then(|s| s.as_str())
+            .unwrap_or("")
+            .to_string();
+        out.push(ContainerStat {
+            name,
+            state,
+            status,
+        });
     }
     if out.is_empty() {
-        (out, format!("empty parse body={}", body.chars().take(120).collect::<String>()))
+        (
+            out,
+            format!(
+                "empty parse body={}",
+                body.chars().take(120).collect::<String>()
+            ),
+        )
     } else {
         (out, "ok".to_string())
     }

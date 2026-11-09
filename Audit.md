@@ -2,13 +2,37 @@
 
 **Date:** 2026-11-09 · **Auditor:** Agnes · **Branch:** `main` @ `1c3c33c`
 
-> **Status (same day):** B-01, B-02, B-03 remediated in-tree — 6 clippy
+> **Status (day 2):** S-01, S-02, S-03, S-04 remediated in-tree.
+> - **S-01 (CORS):** `synth-webmail` now reads `CORS_ORIGINS` env; unset/empty/
+>   `*` → legacy `Any` (back-compat), CSV list → restricts to those origins.
+>   Router picks the matching layer; `Config` gained `cors_origins` +
+>   `cors_origins_list` fields; `from_env` populates them. Regression tests
+>   added to `synth-webmail::routes` covering the four parse classes.
+> - **S-02 (client-IP trust):** `client_ip()` in both `synth-control` and
+>   `synth-webmail` now prefers the nginx-set `X-Real-IP` and falls back to
+>   the **right-most** `X-Forwarded-For` entry. An unauthenticated caller
+>   can no longer prepend `XFF: 8.8.8.8` and claim that IP; the right-most
+>   untrusted hop is the only one read.
+> - **S-03 (ntfy exposure):** `synth-watchdog` now supports `NTFY_BASE_URL`
+>   so operators can point alerts at a private/self-hosted ntfy;
+>   `validate_ntfy_topic()` runs at startup and warns when the topic is
+>   < 12 chars or contains characters ntfy rejects. Dispatch failures in
+>   both the webhook and ntfy paths are now logged (previously `let _`).
+>   `.env.example` documents the new `NTFY_BASE_URL` + the topic-length
+>   guidance.
+> - **S-04 (SMTP forward pool):** `spawn_forward` now acquires a global
+>   8-permit `tokio::sync::Semaphore` before each blocking Postfix relay;
+>   on cap overflow the forward is skipped with a log warning, and the
+>   Redis queue copy remains the source of truth (no mail lost, no
+>   `spawn_blocking` starvation).
+>
+> **Status (day 1):** B-01, B-02, B-03 remediated in-tree — 6 clippy
 > errors in `synth-smtp` fixed (`large_enum_variant` via boxed TLS
 > variant, 2× `collapsible_if`, 3× test-file lints), `cargo fmt` applied,
 > CI toolchain pinned to `1.99.1` with un-truncated clippy/test logs.
 > `cargo clippy --workspace --all-targets -- -D warnings`,
 > `cargo fmt --check` and `cargo test --workspace` all pass. Remaining
-> items: S-01…S-04, B-04, D-01…D-03, L-01…L-04.
+> items: B-04, D-01…D-03, L-01…L-04.
 >
 > **Note:** the working tree also carries uncommitted Plan work
 > (host-networking §1, fail2ban §2, Docker-socket opt-in §3 — see

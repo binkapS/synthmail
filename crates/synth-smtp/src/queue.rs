@@ -64,26 +64,58 @@ fn serialise(queued: &QueuedMessage) -> anyhow::Result<String> {
 /// Relay the accepted message to Postfix with its real envelope, verbatim.
 /// Errors are logged, never propagated: the queue is the source of truth;
 /// the hybrid forward is best-effort redundancy.
+///
+/// Bounded concurrency (audit S-04): a global 8-permit semaphore caps
+/// in-flight Postfix handshakes so a fast submission client queueing
+/// back-to-back 10 MiB messages cannot pin the `spawn_blocking` pool
+/// with slow or wedged relays. When the cap is reached the forward is
+/// skipped (and logged); the Redis queue copy remains the source of
+/// truth, so no mail is lost.
+static FORWARD_SEM: std::sync::OnceLock<std::sync::Arc<tokio::sync::Semaphore>> =
+    std::sync::OnceLock::new();
+pub const MAX_FORWARDS: usize = 8;
+
+fn forward_sem() -> &'static std::sync::Arc<tokio::sync::Semaphore> {
+    FORWARD_SEM.get_or_init(|| std::sync::Arc::new(tokio::sync::Semaphore::new(MAX_FORWARDS)))
+}
+
 pub fn spawn_forward(postfix_host: String, queued: QueuedMessage) {
     use lettre::Transport;
-    tokio::task::spawn_blocking(
-        move || match build_envelope(&queued.mail_from, &queued.rcpt_to) {
+    let sem = forward_sem();
+    // Take one forward slot up front (non-blocking); on cap overflow skip
+    // this message's forward — the Redis queue copy stays the source of
+    // truth. The owned permit is moved into the blocking task and
+    // released when the relay attempt completes.
+    let permit = match sem.clone().try_acquire_owned() {
+        Ok(p) => p,
+        Err(_) => {
+            tracing::warn!(
+                id = %queued.id,
+                "postfix forward skipped: forward pool saturated"
+            );
+            return;
+        }
+    };
+    let id = queued.id.clone();
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        match build_envelope(&queued.mail_from, &queued.rcpt_to) {
             Ok(envelope) => {
                 let mailer = lettre::SmtpTransport::builder_dangerous(&postfix_host).build();
                 match mailer.send_raw(&envelope, &queued.data) {
                     Ok(_) => {
-                        tracing::info!(id = %queued.id, to = ?queued.rcpt_to, "forwarded to postfix")
+                        tracing::info!(id = %id, to = ?queued.rcpt_to, "forwarded to postfix")
                     }
                     Err(e) => {
-                        tracing::warn!(id = %queued.id, error = %e, "postfix relay failed (queued copy kept)")
+                        tracing::warn!(id = %id, error = %e, "postfix relay failed (queued copy kept)")
                     }
                 }
             }
             Err(e) => {
-                tracing::warn!(id = %queued.id, error = %e, "invalid envelope; forward skipped")
+                tracing::warn!(id = %id, error = %e, "invalid envelope; forward skipped")
             }
-        },
-    );
+        }
+    });
 }
 
 fn build_envelope(from: &str, rcpts: &[String]) -> anyhow::Result<lettre::address::Envelope> {
