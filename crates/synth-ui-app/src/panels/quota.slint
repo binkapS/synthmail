@@ -9,7 +9,6 @@ export component QuotaPanel {
 
     VerticalLayout {
         width: 100%;
-        height: auto;
         spacing: 10px;
 
         Card {
@@ -24,7 +23,7 @@ export component QuotaPanel {
         Card {
             VerticalLayout {
                 spacing: 0px;
-                if rows.row_count() == 0: EmptyState { text: "No users."; }
+                if rows.length == 0: EmptyState { text: "No users."; }
                 for row in rows:
                     HorizontalLayout {
                         width: 100%;
