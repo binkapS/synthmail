@@ -16,9 +16,7 @@ export component QuotaPanel {
                 spacing: 6px;
                 Text { text: "Mailbox quota"; color: #F2F5FF; font-size: 18px; font-weight: 700; }
                 for row in stats:
-                    if row.label == "Quota":
-                        Text { text: row.value; color: #F2F5FF; font-size: 14px; }
-                        Text { text: row.sub; color: #93A0C8; font-size: 12px; }
+                    Text { text: row.label + ": " + row.value + " — " + row.sub; color: #93A0C8; font-size: 12px; }
             }
         }
 

@@ -23,7 +23,7 @@ export component DkimPanel {
         Card {
             VerticalLayout {
                 Text { text: "DKIM keys"; color: #F2F5FF; font-size: 18px; font-weight: 700; }
-                Text { text: "One RSA-2048 or Ed25519 key per domain. Selector: default.", color: #93A0C8; font-size: 12px; }
+                Text { text: "Keys: RSA-2048 or Ed25519; selector: default.", color: #93A0C8; font-size: 12px; }
                 TextField { label: "Generate for domain"; placeholder: "example.com"; text: root.generate_domain; }
                 Button { text: "Generate key";
                          clicked => { if root.generate_domain != "" { on_generate(root.generate_domain); } } }
