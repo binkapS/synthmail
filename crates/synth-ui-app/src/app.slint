@@ -69,7 +69,7 @@ export component App inherits Window {
     callback create_alias(name: string, target: string);
     callback update_alias(id: string, name: string, target: string);
     callback delete_alias(id: string);
-    callback create_token(name: string, expires_in_days: int);
+    callback create_token(name: string, expires_in_days: string);
     callback revoke_token(id: string);
     callback refresh_audit(limit: int);
     callback save_filters(json: string);

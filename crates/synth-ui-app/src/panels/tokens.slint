@@ -10,7 +10,7 @@ export component TokensPanel {
     in-out property <string> new_name;
     in-out property <string> new_expiry; // days
 
-    callback on_create(name: string, expires_in_days: int);
+    callback on_create(name: string, expires_in_days: string);
     callback on_revoke(id: string);
 
     VerticalLayout {

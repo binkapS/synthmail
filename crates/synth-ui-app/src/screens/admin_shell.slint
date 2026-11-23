@@ -144,7 +144,13 @@ export component AdminShell {
                 if root.active == "dmarc": DmarcPanel { rows: root.dmarc; }
                 if root.active == "audit": AuditPanel { rows: root.audit; }
                 if root.active == "bans": BansPanel { rows: root.bans; on_lift(ip) => root.revoke_ban(ip); }
-                if root.active == "tokens": TokensPanel { rows: root.tokens; on_revoke(id) => root.revoke_token(id); }
+                if root.active == "tokens": TokensPanel {
+                    rows: root.tokens;
+                    new_name: root.new_name;
+                    new_expiry: root.new_expiry;
+                    on_create(name, expires) => root.create_token(name, expires.parse(int));
+                    on_revoke(id) => root.revoke_token(id);
+                }
                 if root.active == "config": ConfigPanel {
                     export_result: root.export_result;
                     export_result_open: root.export_result_open;
