@@ -41,8 +41,15 @@ export component App inherits Window {
     // ---- admin panel state (Rust-driven) ----
     in-out property <string> active: "overview"; // AdminShell.active mirror
     in-out property <string> admin_error: "";
-    in-out property <string> domains_new_name: "";
-    in-out property <string> domains_new_desc: "";
+    in-out property <string> new_name: "";
+    in-out property <string> new_desc: "";
+    in-out property <string> new_email: "";
+    in-out property <string> new_password: "";
+    in-out property <string> new_quota: "";
+    in-out property <string> new_kind: "";
+    in-out property <string> new_target: "";
+    in-out property <string> new_expiry: "";
+    in-out property <string> generate_domain: "";
     in-out property <string> filters_json: "";
     in-out property <string> vacation_json: "";
     in-out property <string> export_result: "";
