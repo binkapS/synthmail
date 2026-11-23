@@ -93,10 +93,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
       }); }
     { let a = admin.clone(); app.on_import_config(move |j| { store::admin::import_config(&a, j.to_string()).ok(); }); }
     { let a = admin.clone(); app.on_refresh_queues(move || store::admin::refresh_panel(&a, "queues")); }
-    { let a = admin.clone();
+    { let a = admin.clone(); let aw = app_weak.clone();
       app.on_refresh_stats(move || {
           let rows = store::admin::refresh_stats(&a, &store::auth::client());
-          if let Some(app) = app_weak.upgrade() {
+          if let Some(app) = aw.upgrade() {
               app.set_stats(ModelRc::new(VecModel::from(rows)));
           }
       }); }
