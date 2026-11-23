@@ -6,6 +6,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Admin console is now a Slint 1.19 native desktop app (`crates/synth-ui-app`):
+  login + 16 admin tabs + mail client, replacing the Svelte 5 + Tailwind SPA
+  (`ui/`, `synth-ui` nginx service, and edge `/admin/` proxy rules removed).
+
 ### Security
 
 - `synth-smtp` is now production-ready: STARTTLS (RFC 3207) and SASL

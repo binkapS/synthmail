@@ -1,47 +1,41 @@
-// DashboardScreen — admin/user landing (parity: old /). Rust fills stats +
-// activity list once wired (Phase 5).
+// DashboardScreen — stats grid + recent activity (parity: old /).
 import { Card } from "../components/card.slint";
 import { TopBar } from "../components/top-bar.slint";
+import { StatCard } from "../components/stat-card.slint";
+import { EmptyState } from "../components/empty-state.slint";
+import { StatRow, AuditRow } from "../models.slint";
 
 export component DashboardScreen {
+    in-out property <[StatRow]> stats;
+    in-out property <[AuditRow]> audit;
     callback on_go_admin();
     callback on_go_mail();
-    callback on_refresh();
 
     VerticalLayout {
         width: 100%;
         height: 100%;
         spacing: 16px;
 
-        TopBar {
-            title: "Dashboard";
-            on_refresh => {};
-        }
+        TopBar { title: "Dashboard"; }
 
         VerticalLayout {
-            width: 480px;
-            height: 100%;
-            alignment: center;
-            spacing: 8px;
+            width: 100%;
+            spacing: 10px;
+            Text { text: "Welcome back"; color: #F2F5FF; font-size: 28px; font-weight: 700; }
+            Text { text: "Domains, users, delivery health — at a glance."; color: #93A0C8; font-size: 13px; }
+            HorizontalLayout { spacing: 10px; for s in stats: StatCard { stat: s; } }
+        }
 
-            Card {
-                Text {
-                    text: "Welcome back";
-                    color: #F2F5FF;
-                    font-size: 28px;
-                    font-weight: 700;
-                    horizontal-alignment: center;
-                }
-                TouchArea {
-                    width: 100%;
-                    height: 44px;
-                    clicked => { root.on_go_admin(); }
-                }
-                TouchArea {
-                    width: 100%;
-                    height: 44px;
-                    clicked => { root.on_go_mail(); }
-                }
+        Card {
+            VerticalLayout {
+                Text { text: "Recent activity"; color: #F2F5FF; font-size: 16px; font-weight: 700; }
+                if audit.length == 0: EmptyState { text: "No audit entries."; }
+                for row in audit:
+                    HorizontalLayout {
+                        Text { text: row.actor; color: #F2F5FF; font-size: 13px; width: 100%; }
+                        Text { text: row.action; color: #93A0C8; font-size: 12px; width: 100%; }
+                        Text { text: row.time; color: #93A0C8; font-size: 11px; width: 20%; }
+                    }
             }
         }
     }

@@ -507,15 +507,6 @@ services:
       timeout: 5s
     restart: unless-stopped
 
-  synth-ui:
-    build:
-      context: .
-      dockerfile: docker/synth-ui/Dockerfile
-    ports:
-      # Loopback-only (audit H-11). Expose via edge /admin/.
-      - "127.0.0.1:3002:80"
-    networks: [mailnet, edge]
-
   backup:
     # Full tooling (audit H-09): pg_dump + tar + sha256 + retention + rclone.
     build:

@@ -37,8 +37,7 @@ jobs:
         run: cargo test --workspace
 
   # Audit L-04: dependency advisories. `cargo audit` checks `Cargo.lock`
-  # against the RustSec advisory DB; `npm audit` does the same for the
-  # UI's lockfile. Both fail the job on a known-vulnerable dependency.
+  # against the RustSec advisory DB. Fails the job on a known-vulnerable dependency.
   audit-deps:
     runs-on: ubuntu-latest
     steps:
@@ -47,8 +46,6 @@ jobs:
         uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-      - name: npm audit (ui/package-lock.json)
-        run: npm audit --prefix ui
   migrate_check:
     runs-on: ubuntu-latest
     services:
@@ -75,7 +72,6 @@ jobs:
       - run: docker buildx build --platform ${{ matrix.target }} -f docker/synth-control/Dockerfile --push=false .
       - run: docker buildx build --platform ${{ matrix.target }} -f docker/synth-webmail/Dockerfile --push=false .
       - run: docker buildx build --platform ${{ matrix.target }} -f docker/synth-smtp/Dockerfile --push=false .
-      - run: docker buildx build --platform ${{ matrix.target }} -f docker/synth-ui/Dockerfile --push=false .
   config-test:
     # Audit N-07: validate mail configs the way the daemons would.
     runs-on: ubuntu-latest
@@ -96,21 +92,6 @@ jobs:
           docker run --rm -v "$PWD/docker/dovecot/dovecot.conf:/etc/dovecot/dovecot.conf:ro" \
             debian:bookworm-slim sh -c \
             'apt-get update >/dev/null && apt-get install -y --no-install-recommends dovecot-core >/dev/null && doveconf -n | head -5'
-  ui-build:
-    # Svelte 5 SPA build.
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: "22" }
-      - working-directory: ui
-        run: npm ci
-      - working-directory: ui
-        run: npm run check
-      - working-directory: ui
-        run: npm test
-      - working-directory: ui
-        run: npm run build
   smoke:
     runs-on: ubuntu-latest
     env:

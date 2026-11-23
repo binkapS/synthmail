@@ -3,7 +3,7 @@
 Self-hosted mail server with a Rust control plane. Postfix, Dovecot and Rspamd
 move and filter mail; Rust services provide the admin API, webmail backend, DKIM
 key management, health monitoring and migration tooling. The admin console is a
-Svelte 5 + Tailwind CSS v4 single-page app.
+Slint 1.19 native desktop app (Rust).
 
 > **Status:** production-ready, pending final Docker-host validation. All security
 > audits are closed (see `docs/history/`). Complete TLS provisioning and run
@@ -53,13 +53,12 @@ crates/
   synth-smtp/        # ESMTP submission service: STARTTLS + AUTH + Postfix relay (:2525)
   synth-migrate/     # mailcow / PostfixAdmin / CSV import CLI
   synth-bench/       # latency / throughput harness
-ui/                 # Svelte 5 + Tailwind v4 SPA (served by synth-ui/nginx)
+crates/synth-ui-app/ # Slint native console + webmail client (SynthMail Desktop)
 docker/             # service Dockerfiles and configuration templates
 ```
 
 Edge (nginx) fronts HTTP/HTTPS and routes `/api/*` to `synth-control`,
-`/api/v1/mail/*` and `/jmap` to `synth-webmail`, `/admin/` to `synth-ui`,
-and `/dav/` to Radicale.
+`/api/v1/mail/*` and `/jmap` to `synth-webmail`, and `/dav/` to Radicale.
 
 Mail flow: Postfix receives and delivers to per-user Maildir; Dovecot serves
 IMAP; Rspamd filters; `synth-webmail` reads the shared Maildir and sends via
@@ -92,7 +91,7 @@ profiles, and troubleshooting — see
 Then:
 
 - Edge: `http://localhost:${HTTP_PORT:-8080}` (HTTPS on `${HTTPS_PORT:-8443}`)
-- Admin UI: `http://localhost:${HTTP_PORT:-8080}/admin/`
+- Admin console: run `synth-ui-app` (or its distro package) — connects to `synth-control:8000` and `synth-webmail:3000`.
 - Health: `synth-control` `:8000/healthz`, `synth-webmail` `:3000/healthz`
 
 ## Configuration
@@ -123,7 +122,6 @@ Key environment variables (full list in `.env.example`):
 | synth-control | 8000 | admin REST API (`/api/v1`) |
 | synth-webmail | 3000 | webmail + JMAP (`/api/v1/mail`, `/jmap`) |
 | **synth-smtp** | **127.0.0.1:2525** | ESMTP submission: STARTTLS + AUTH (SASL PLAIN/LOGIN), Redis queue → Postfix relay. Loopback-published only; see TLS section below. |
-| synth-ui (nginx) | 127.0.0.1:3002 | admin SPA, proxied by edge `/admin/` |
 | synth-watchdog | 8081 (internal) | health polling, ACME challenge glue |
 | postgres | 5432 (loopback) | |
 | redis | 6379 (loopback) | |
@@ -176,24 +174,29 @@ parity, Redis-shared per-IP attempt budget).
 
 ## Admin UI
 
-The admin console (`ui/`) is Svelte 5 + Tailwind CSS v4 using the **CyberSlate
-Premium Dark** design system. Auth-gated routes:
+The admin console and webmail client are Slint 1.19 native desktop apps
+(**SynthMail Desktop**), implemented as a separate workspace crate
+(`crates/synth-ui-app/`) with its own design system. The app talks directly to
+`synth-control:8000` (control plane) and `synth-webmail:3000` (webmail/JMAP).
 
-- `/` — dashboard
-- `/login` — sign-in (guest-only)
-- `/admin` — admin console (requires admin/superadmin, enforced by load
-  function + server-side API)
-- `/mail` — webmail 3-pane client
+Screens (all auth-gated, enforced by Rust-side API calls):
+
+- **Sign in** — `synth-ui-app` login (TOTP supported; OS-keychain token store).
+- **Dashboard** — stats + recent activity (admin/user).
+- **Admin console** — 16 tabs: Overview, Server, Domains, Users, Aliases,
+  Quota, Queues, DKIM, Filters, Vacation, DMARC, Audit, Bans, Tokens, Config, Account.
+- **Mail** — 3-pane client: folders, message list, reading pane, compose/reply.
+- **Error** — connection failure with retry.
 
 Commands:
 
 ```bash
-cd ui
-npm ci
-npm run check       # svelte-check + typecheck
-npm test            # Vitest (pure helpers)
-npm run build       # production bundle
+cargo run -p synth-ui-app        # run the desktop app
+cargo test -p synth-ui-app       # unit tests (models, store, API client)
 ```
+
+Env vars: `SYNTH_CONTROL_URL` (default `http://synth-control:8000`),
+`SYNTH_WEBMAIL_URL` (default `http://synth-webmail:3000`).
 
 ## API overview
 
