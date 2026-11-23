@@ -120,6 +120,7 @@ export component App inherits Window {
         import_path: root.import_path;
         export_result: root.export_result;
         export_result_open: root.export_result_open;
+        admin_error: root.admin_error;
         on_select(index) => root.select_tab(index);
         on_refresh => root.refresh_panel(root.active);
         on_logout => root.logout();

@@ -53,6 +53,7 @@ export component AdminShell {
     in-out property <string> import_path;
     in-out property <string> export_result;
     in-out property <string> export_result_open;
+    in-out property <string> admin_error;
 
     in-out property <string> active: "overview";
     in-out property <string> title: "Admin console";
@@ -148,7 +149,7 @@ export component AdminShell {
                     rows: root.tokens;
                     new_name: root.new_name;
                     new_expiry: root.new_expiry;
-                    on_create(name, expires) => root.create_token(name, expires.parse(int));
+                    on_create(name, expires) => root.create_token(name, expires);
                     on_revoke(id) => root.revoke_token(id);
                 }
                 if root.active == "config": ConfigPanel {
@@ -160,6 +161,10 @@ export component AdminShell {
                     on_export_result_close => { root.export_result_open = ""; };
                 }
                 if root.active == "account": AccountPanel { error: root.admin_error; }
+            }
+        }
+    }
+}
             }
         }
     }
