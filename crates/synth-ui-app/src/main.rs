@@ -78,12 +78,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     { let a = admin.clone(); app.on_create_alias(move |n, t| { store::admin::create_alias(&a, n, t).ok(); }); }
     { let a = admin.clone(); app.on_update_alias(move |i, n, t| { store::admin::update_alias(&a, i, n, t).ok(); }); }
     { let a = admin.clone(); app.on_delete_alias(move |i| { store::admin::delete_alias(&a, i).ok(); }); }
-    { let a = admin.clone(); let aw = app_weak.clone();
-      app.on_create_token(move |n, d| {
-          if let Some(app) = aw.upgrade() {
-              app.set_create_token_secret(store::admin::create_token(&a, n, d).unwrap_or_default().into());
-          }
-      }); }
+    { let a = admin.clone();
+      app.on_create_token(move |n, d| { store::admin::create_token(&a, n, d).ok(); }); }
     { let a = admin.clone(); app.on_revoke_token(move |i| { store::admin::revoke_token(&a, i).ok(); }); }
     { let a = admin.clone(); app.on_refresh_audit(move |_limit| store::admin::refresh_panel(&a, "audit")); }
     { let a = admin.clone(); app.on_save_filters(move |j| { store::admin::save_filters(&a, j.to_string()).ok(); }); }
