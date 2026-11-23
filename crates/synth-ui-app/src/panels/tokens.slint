@@ -15,7 +15,6 @@ export component TokensPanel {
 
     VerticalLayout {
         width: 100%;
-        height: auto;
         spacing: 10px;
 
         Card {
@@ -24,14 +23,14 @@ export component TokensPanel {
                 Text { text: "API tokens"; color: #F2F5FF; font-size: 18px; font-weight: 700; }
                 TextField { label: "Token name"; placeholder: "CI runner"; text: new_name; }
                 Button { text: "Create token";
-                         clicked => { if new_name != "" { on_create(new_name, (new_expiry != "" ? new_expiry : "30").parse(int)); } } }
+                         clicked => { if new_name != "" { on_create(new_name, new_expiry); } } }
             }
         }
 
         Card {
             VerticalLayout {
                 spacing: 0px;
-                if rows.row_count() == 0: EmptyState { text: "No API tokens."; }
+                if rows.length == 0: EmptyState { text: "No API tokens."; }
                 for row in rows:
                     HorizontalLayout {
                         width: 100%;
