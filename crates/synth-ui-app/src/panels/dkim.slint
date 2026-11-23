@@ -18,7 +18,6 @@ export component DkimPanel {
 
     VerticalLayout {
         width: 100%;
-        height: auto;
         spacing: 10px;
 
         Card {
@@ -34,7 +33,7 @@ export component DkimPanel {
         Card {
             VerticalLayout {
                 spacing: 0px;
-                if rows.row_count() == 0:
+                if rows.length == 0:
                     EmptyState { text: "No DKIM keys."; }
                 for row in rows:
                     HorizontalLayout {
@@ -44,8 +43,7 @@ export component DkimPanel {
                         padding: 8px;
                         Text { text: row.domain; color: #F2F5FF; font-size: 14px; font-weight: 500; width: 100%; }
                         Badge { text: row.key_type; color: #2D3D64; text-color: #93A0C8; }
-                        Badge { text: row.status; color: row.status == "ok" ? "#10B98129" : "#F8717117";
-                                text-color: row.status == "ok" ? "#34D399" : "#F87171"; }
+                        Badge { text: row.status; }
                     }
                 }
             }
