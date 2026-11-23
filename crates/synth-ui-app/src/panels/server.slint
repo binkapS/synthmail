@@ -1,0 +1,22 @@
+// ServerPanel — server stats (uptime, version, etc.) from refresh_stats.
+import { Card } from "../components/card.slint";
+import { StatCard } from "../components/stat-card.slint";
+import { EmptyState } from "../components/empty-state.slint";
+
+export component ServerPanel {
+    in-out property <[StatRow]> stats;
+
+    VerticalLayout {
+        width: 100%;
+        height: auto;
+        spacing: 10px;
+
+        Card {
+            VerticalLayout {
+                Text { text: "Server"; color: #F2F5FF; font-size: 18px; font-weight: 700; }
+                if stats.row_count() == 0: EmptyState { text: "No stats."; }
+                for row in stats: StatCard { stat: row; }
+            }
+        }
+    }
+}

@@ -1,0 +1,49 @@
+// AccountPanel — password change, 2FA, push subscriptions.
+import { Card } from "../components/card.slint";
+import { Button } from "../components/button.slint";
+import { TextField } from "../components/text-field.slint";
+import { ErrorBanner } from "../components/error-banner.slint";
+import { EmptyState } from "../components/empty-state.slint";
+
+export component AccountPanel {
+    in-out property <bool> loading;
+    in-out property <string> error;
+    in-out property <string> info;
+    in-out property <bool> forced;
+    in-out property <string> cur_password;
+    in-out property <string> new_password;
+    in-out property <string> totp_password;
+    in-out property <string> totp_code;
+
+    callback on_change_password(current: string, new_password: string);
+    callback on_totp_enroll(password: string);
+    callback on_totp_verify(code: string);
+    callback on_totp_disable(password: string);
+
+    VerticalLayout {
+        width: 100%;
+        height: auto;
+        spacing: 10px;
+
+        Card {
+            VerticalLayout {
+                Text { text: "Account"; color: #F2F5FF; font-size: 18px; font-weight: 700; }
+                TextField { label: "Current password"; text: root.cur_password; }
+                TextField { label: "New password"; text: root.new_password; }
+                Button { text: "Change password";
+                         clicked => { if root.cur_password != "" && root.new_password != "" { on_change_password(root.cur_password, root.new_password); } } }
+                Text { text: root.error; color: #F87171; font-size: 12px; }
+            }
+        }
+
+        Card {
+            VerticalLayout {
+                Text { text: "Two-factor authentication"; color: #F2F5FF; font-size: 18px; font-weight: 700; }
+                Button { text: "Enroll 2FA"; clicked => { on_totp_enroll(root.totp_password); } }
+                Button { text: "Disable 2FA"; clicked => { on_totp_disable(root.totp_password); } }
+                TextField { label: "TOTP code"; placeholder: "123456"; text: root.totp_code; }
+                Button { text: "Verify enrollment"; clicked => { on_totp_verify(root.totp_code); } }
+            }
+        }
+    }
+}

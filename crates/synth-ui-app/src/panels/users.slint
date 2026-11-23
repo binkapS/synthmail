@@ -1,0 +1,56 @@
+// UsersPanel — users table + create form + toggle/reset-password actions.
+import { Card } from "../components/card.slint";
+import { Badge } from "../components/badge.slint";
+import { Button } from "../components/button.slint";
+import { TextField } from "../components/text-field.slint";
+import { EmptyState } from "../components/empty-state.slint";
+
+export component UsersPanel {
+    in-out property <[UserRow]> rows;
+    in-out property <string> new_email;
+    in-out property <string> new_password;
+    in-out property <string> new_quota;
+    in-out property <string> new_kind;
+
+    callback on_create(email: string, password: string, kind: string, quota_mb: int);
+    callback on_toggle(id: string, active: bool);
+    callback on_reset_password(id: string, password: string);
+
+    VerticalLayout {
+        width: 100%;
+        height: auto;
+        spacing: 10px;
+
+        Card {
+            VerticalLayout {
+                spacing: 10px;
+                Text { text: "Users"; color: #F2F5FF; font-size: 18px; font-weight: 700; }
+                TextField { label: "Email"; placeholder: "user@example.com"; text: new_email; }
+                TextField { label: "Password"; placeholder: "••••••••"; text: new_password; }
+                TextField { label: "Quota (MB)"; placeholder: "1024"; text: new_quota; }
+                Button { text: "Add user";
+                         clicked => { if new_email != "" && new_password != "" { on_create(new_email, new_password, new_kind, 0); } } }
+            }
+        }
+
+        Card {
+            VerticalLayout {
+                spacing: 0px;
+                if rows.row_count() == 0: EmptyState { text: "No users."; }
+                for row in rows:
+                    HorizontalLayout {
+                        width: 100%;
+                        height: 56px;
+                        spacing: 8px;
+                        padding: 8px;
+                        Text { text: row.email; color: #F2F5FF; font-size: 14px; font-weight: 500; width: 100%; }
+                        Badge { text: row.role; color: "#2D3D64"; text-color: "#93A0C8"; }
+                        Badge { text: row.status; color: row.status == "active" ? "#10B98129" : "#F8717117";
+                                text-color: row.status == "active" ? "#34D399" : "#F87171"; }
+                        TouchArea { width: 64px; height: 32px; clicked => on_toggle(row.id, row.status != "active");
+                                    Text { text: row.status == "active" ? "Disable" : "Enable"; color: #93A0C8; font-size: 12px; } }
+                    }
+            }
+        }
+    }
+}

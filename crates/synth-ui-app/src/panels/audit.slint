@@ -1,0 +1,45 @@
+// AuditPanel — recent audit entries with limit select + refresh.
+import { Card } from "../components/card.slint";
+import { EmptyState } from "../components/empty-state.slint";
+
+export component AuditPanel {
+    in-out property <[AuditRow]> rows;
+    in-out property <bool> loading;
+    in-out property <string> error;
+
+    callback on_refresh();
+
+    VerticalLayout {
+        width: 100%;
+        height: auto;
+        spacing: 10px;
+
+        Card {
+            VerticalLayout {
+                Text { text: "Audit log"; color: #F2F5FF; font-size: 18px; font-weight: 700; }
+                Text { text: "Latest entries"; color: #93A0C8; font-size: 12px; }
+            }
+        }
+
+        Card {
+            VerticalLayout {
+                spacing: 0px;
+                if rows.row_count() == 0:
+                    EmptyState { text: "No audit entries."; }
+                for row in rows:
+                    HorizontalLayout {
+                        width: 100%;
+                        height: 56px;
+                        spacing: 8px;
+                        padding: 8px;
+                        Text { text: row.time; color: #93A0C8; font-size: 12px; width: 20%; }
+                        Text { text: row.actor; color: #F2F5FF; font-size: 13px; font-weight: 500; width: 20%; }
+                        Text { text: row.action; color: #F2F5FF; font-size: 13px; font-weight: 500; width: 20%; }
+                        Text { text: row.target; color: #93A0C8; font-size: 12px; width: 20%; }
+                        Text { text: row.detail; color: #64748B; font-size: 12px; width: 20%; }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,59 @@
+// AliasesPanel — aliases table + create form + update/delete actions.
+import { Card } from "../components/card.slint";
+import { Badge } from "../components/badge.slint";
+import { Button } from "../components/button.slint";
+import { TextField } from "../components/text-field.slint";
+import { ErrorBanner } from "../components/error-banner.slint";
+import { EmptyState } from "../components/empty-state.slint";
+
+export component AliasesPanel {
+    in-out property <[AliasRow]> rows;
+    in-out property <bool> loading;
+    in-out property <string> error;
+    in-out property <bool> create_pending;
+    in-out property <string> new_name;
+    in-out property <string> new_target;
+
+    callback on_refresh();
+    callback on_create(name: string, target: string);
+    callback on_update(id: string, name: string, target: string);
+    callback on_delete(id: string);
+
+    VerticalLayout {
+        width: 100%;
+        height: auto;
+        spacing: 10px;
+
+        Card {
+            VerticalLayout {
+                spacing: 10px;
+                Text { text: "Aliases"; color: #F2F5FF; font-size: 18px; font-weight: 700; }
+                TextField { label: "Alias"; placeholder: "alias@domain"; text: root.new_name; disabled: root.create_pending; }
+                TextField { label: "Target"; placeholder: "user@example.com"; text: root.new_target; disabled: root.create_pending; }
+                if root.error != "": ErrorBanner { message: root.error; }
+                Button { text: root.create_pending ? "Adding…" : "Add alias"; disabled: root.create_pending;
+                         clicked => { if root.new_name != "" && root.new_target != "" { on_create(root.new_name, root.new_target); } } }
+            }
+        }
+
+        Card {
+            VerticalLayout {
+                spacing: 0px;
+                if rows.row_count() == 0:
+                    EmptyState { text: "No aliases."; }
+                for row in rows:
+                    HorizontalLayout {
+                        width: 100%;
+                        height: 56px;
+                        spacing: 8px;
+                        padding: 8px;
+                        Text { text: row.name; color: #F2F5FF; font-size: 14px; font-weight: 500; width: 100%; }
+                        Text { text: row.target; color: #93A0C8; font-size: 12px; width: 100%; }
+                        TouchArea { width: 80px; height: 32px; clicked => on_update(row.id, row.name, row.target); Text { text: "Update"; color: #93A0C8; font-size: 12px; } }
+                        TouchArea { width: 56px; height: 32px; clicked => on_delete(row.id); Text { text: "Delete"; color: #F87171; font-size: 12px; } }
+                    }
+                }
+            }
+        }
+    }
+}

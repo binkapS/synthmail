@@ -1,0 +1,60 @@
+// DomainsPanel — domains table + create form + per-row verify/DNS/DKIM/delete.
+import { Card } from "../components/card.slint";
+import { Badge } from "../components/badge.slint";
+import { Button } from "../components/button.slint";
+import { TextField } from "../components/text-field.slint";
+import { ErrorBanner } from "../components/error-banner.slint";
+import { EmptyState } from "../components/empty-state.slint";
+
+export component DomainsPanel {
+    in-out property <[DomainRow]> rows;
+    in-out property <bool> loading;
+    in-out property <string> error;
+    in-out property <string> new_name;
+    in-out property <string> new_desc;
+
+    callback on_refresh();
+    callback on_create(name: string, desc: string);
+    callback on_delete(id: string);
+    callback on_verify(id: string);
+    callback on_dns(id: string);
+    callback on_dkim(id: string);
+
+    VerticalLayout {
+        width: 100%;
+        height: auto;
+        spacing: 10px;
+
+        Card {
+            VerticalLayout {
+                spacing: 10px;
+                Text { text: "Domains"; color: #F2F5FF; font-size: 18px; font-weight: 700; }
+                TextField { label: "Domain name"; placeholder: "example.com"; text: new_name; }
+                TextField { label: "Description"; placeholder: "Optional"; text: new_desc; }
+                if error != "": ErrorBanner { message: error; }
+                Button { text: "Add domain";
+                         clicked => { if new_name != "" { on_create(new_name, new_desc); } } }
+            }
+        }
+
+        Card {
+            VerticalLayout {
+                spacing: 0px;
+                if rows.row_count() == 0: EmptyState { text: "No domains."; }
+                for row in rows:
+                    HorizontalLayout {
+                        width: 100%;
+                        height: 56px;
+                        spacing: 8px;
+                        padding: 8px;
+                        Text { text: row.name; color: #F2F5FF; font-size: 14px; font-weight: 500; width: 100%; }
+                        if row.verified: Badge { text: "verified"; color: "#10B98123"; text-color: "#34D399"; }
+                        TouchArea { width: 80px; height: 32px; clicked => on_verify(row.id); Text { text: "Verify"; color: #93A0C8; font-size: 12px; } }
+                        TouchArea { width: 80px; height: 32px; clicked => on_dns(row.id); Text { text: "DNS"; color: #93A0C8; font-size: 12px; } }
+                        TouchArea { width: 80px; height: 32px; clicked => on_dkim(row.id); Text { text: "DKIM"; color: #93A0C8; font-size: 12px; } }
+                        TouchArea { width: 56px; height: 32px; clicked => on_delete(row.id); Text { text: "Delete"; color: #F87171; font-size: 12px; } }
+                    }
+            }
+        }
+    }
+}

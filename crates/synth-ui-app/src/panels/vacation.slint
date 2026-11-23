@@ -1,0 +1,49 @@
+// VacationPanel — vacation responder settings per domain.
+import { Card } from "../components/card.slint";
+import { Button } from "../components/button.slint";
+import { Toggle } from "../components/toggle.slint";
+import { TextField } from "../components/text-field.slint";
+import { ErrorBanner } from "../components/error-banner.slint";
+import { EmptyState } from "../components/empty-state.slint";
+
+export component VacationPanel {
+    in-out property <[VacationRow]> rows;
+    in-out property <bool> loading;
+    in-out property <string> error;
+    in-out property <string> json;
+
+    callback on_refresh();
+    callback on_save(json: string);
+
+    VerticalLayout {
+        width: 100%;
+        height: auto;
+        spacing: 10px;
+
+        Card {
+            VerticalLayout {
+                Text { text: "Vacation responder"; color: #F2F5FF; font-size: 18px; font-weight: 700; }
+                if root.error != "": ErrorBanner { message: root.error; }
+                Button { text: "Save vacation"; clicked => { on_save(root.json); } }
+            }
+        }
+
+        Card {
+            VerticalLayout {
+                spacing: 0px;
+                if rows.row_count() == 0:
+                    EmptyState { text: "No vacation settings."; }
+                for row in rows:
+                    HorizontalLayout {
+                        width: 100%;
+                        height: 56px;
+                        spacing: 8px;
+                        padding: 8px;
+                        Text { text: row.domain; color: #F2F5FF; font-size: 14px; font-weight: 500; width: 100%; }
+                        Toggle { checked: row.enabled; }
+                    }
+                }
+            }
+        }
+    }
+}

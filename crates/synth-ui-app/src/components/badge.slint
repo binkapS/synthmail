@@ -1,0 +1,22 @@
+// Badge — status chip. `color` is the chip background, `text_color` its text.
+export component Badge {
+    in-out property <string> text: "";
+    in-out property <string> color: "#2D3D64";
+    in-out property <string> text-color: "#93A0C8";
+
+    Rectangle {
+        border-radius: 999px;
+        background: root.color;
+        width: auto;
+        height: 22px;
+        padding: 4px;
+
+        Text {
+            text: root.text;
+            color: root.text-color;
+            font-size: 11px;
+            font-weight: 600;
+            horizontal-alignment: center;
+        }
+    }
+}

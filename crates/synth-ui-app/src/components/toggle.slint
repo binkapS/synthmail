@@ -1,0 +1,22 @@
+// Toggle — on/off switch.
+export component Toggle {
+    in-out property <bool> checked;
+    in-out property <string> label: "";
+
+    HorizontalLayout {
+        spacing: 8px;
+        Rectangle {
+            width: 38px;
+            height: 22px;
+            border-radius: 999px;
+            background: root.checked ? #22D3EE : #2D3D64;
+            Text {
+                text: "";
+                color: root.checked ? #0A1020 : #93A0C8;
+                font-size: 12px;
+                horizontal-alignment: center;
+            }
+        }
+        Text { text: root.label; color: #F2F5FF; font-size: 13px; }
+    }
+}

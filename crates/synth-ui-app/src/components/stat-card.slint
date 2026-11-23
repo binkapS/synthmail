@@ -1,0 +1,24 @@
+// StatCard — dashboard stat tile: label, big value, subtitle.
+export component StatCard {
+    in-out property <[StatRow]> stat;
+
+    Rectangle {
+        width: 100%;
+        height: 120px;
+        border-radius: 12px;
+        background: #121A32;
+        border-width: 1px;
+        border-color: #2D3D64;
+
+        VerticalLayout {
+            width: 100%;
+            height: 100%;
+            spacing: 6px;
+            alignment: center;
+
+            Text { text: root.stat[0].label; color: #93A0C8; font-size: 12px; font-weight: 500; }
+            Text { text: root.stat[0].value; color: #F2F5FF; font-size: 28px; font-weight: 700; }
+            Text { text: root.stat[0].sub; color: #5C6CA0; font-size: 12px; }
+        }
+    }
+}

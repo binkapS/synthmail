@@ -1,0 +1,44 @@
+// DmarcPanel — DMARC aggregate reports.
+import { Card } from "../components/card.slint";
+import { Badge } from "../components/badge.slint";
+import { EmptyState } from "../components/empty-state.slint";
+
+export component DmarcPanel {
+    in-out property <[DmarcRow]> rows;
+    in-out property <bool> loading;
+    in-out property <string> error;
+
+    callback on_refresh();
+
+    VerticalLayout {
+        width: 100%;
+        height: auto;
+        spacing: 10px;
+
+        Card {
+            VerticalLayout {
+                Text { text: "DMARC reports"; color: #F2F5FF; font-size: 18px; font-weight: 700; }
+                Text { text: "Aggregates ingested from rua.xml.gz reports.", color: #93A0C8; font-size: 12px; }
+            }
+        }
+
+        Card {
+            VerticalLayout {
+                spacing: 0px;
+                if rows.row_count() == 0:
+                    EmptyState { text: "No DMARC reports."; }
+                for row in rows:
+                    HorizontalLayout {
+                        width: 100%;
+                        height: 56px;
+                        spacing: 8px;
+                        padding: 8px;
+                        Text { text: row.domain; color: #F2F5FF; font-size: 14px; font-weight: 500; width: 100%; }
+                        Badge { text: row.aggregate_count + " reports"; color: "#2D3D64"; text-color: "#93A0C8"; }
+                        Text { text: row.last_received; color: #93A0C8; font-size: 12px; }
+                    }
+                }
+            }
+        }
+    }
+}

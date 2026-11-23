@@ -1,0 +1,41 @@
+// QuotaPanel — quota overview stat + per-user quota bars.
+import { Card } from "../components/card.slint";
+import { EmptyState } from "../components/empty-state.slint";
+
+export component QuotaPanel {
+    in-out property <[UserRow]> rows;
+    in-out property <[StatRow]> stats;
+
+    VerticalLayout {
+        width: 100%;
+        height: auto;
+        spacing: 10px;
+
+        Card {
+            VerticalLayout {
+                spacing: 6px;
+                Text { text: "Mailbox quota"; color: #F2F5FF; font-size: 18px; font-weight: 700; }
+                for row in stats:
+                    if row.label == "Quota":
+                        Text { text: row.value; color: #F2F5FF; font-size: 14px; }
+                        Text { text: row.sub; color: #93A0C8; font-size: 12px; }
+            }
+        }
+
+        Card {
+            VerticalLayout {
+                spacing: 0px;
+                if rows.row_count() == 0: EmptyState { text: "No users."; }
+                for row in rows:
+                    HorizontalLayout {
+                        width: 100%;
+                        height: 56px;
+                        spacing: 8px;
+                        padding: 8px;
+                        Text { text: row.email; color: #F2F5FF; font-size: 14px; font-weight: 500; width: 100%; }
+                        Text { text: row.quota_used + "/" + row.quota_total; color: #93A0C8; font-size: 12px; width: 80px; }
+                    }
+            }
+        }
+    }
+}

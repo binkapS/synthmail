@@ -1,15 +1,83 @@
 // AdminShell — desktop admin console: TopBar + Sidebar + panel content.
-import { Card } from "../components/card.slint";
+// Root data props are bound from App (root = this component); panels read
+// their data via `root.<model>` (root = AdminShell); actions fire callbacks
+// wired to App in app.slint.
 import { TopBar } from "../components/top-bar.slint";
 import { Sidebar } from "../components/sidebar.slint";
+import { OverviewPanel } from "../panels/overview.slint";
+import { ServerPanel } from "../panels/server.slint";
+import { DomainsPanel } from "../panels/domains.slint";
+import { UsersPanel } from "../panels/users.slint";
+import { AliasesPanel } from "../panels/aliases.slint";
+import { QuotaPanel } from "../panels/quota.slint";
+import { QueuesPanel } from "../panels/queues.slint";
+import { DkimPanel } from "../panels/dkim.slint";
+import { FiltersPanel } from "../panels/filters.slint";
+import { VacationPanel } from "../panels/vacation.slint";
+import { DmarcPanel } from "../panels/dmarc.slint";
+import { AuditPanel } from "../panels/audit.slint";
+import { BansPanel } from "../panels/bans.slint";
+import { TokensPanel } from "../panels/tokens.slint";
+import { ConfigPanel } from "../panels/config.slint";
+import { AccountPanel } from "../panels/account.slint";
 
 export component AdminShell {
+    // ---- models (bound to App by App.slint) ----
+    in-out property <[DomainRow]> domains;
+    in-out property <[UserRow]> users;
+    in-out property <[AliasRow]> aliases;
+    in-out property <[TokenRow]> tokens;
+    in-out property <[AuditRow]> audit;
+    in-out property <[DkimRow]> dkim;
+    in-out property <[FilterRow]> filters;
+    in-out property <[VacationRow]> vacation;
+    in-out property <[DmarcRow]> dmarc;
+    in-out property <[BanRow]> bans;
+    in-out property <[ConfigRow]> config;
+    in-out property <[QueueRow]> queues;
+    in-out property <[StatRow]> stats;
+
+    // ---- form state (owned by AdminShell; panels read via root.*) ----
+    in-out property <string> new_name;
+    in-out property <string> new_desc;
+    in-out property <string> new_email;
+    in-out property <string> new_password;
+    in-out property <string> new_quota;
+    in-out property <string> new_kind;
+    in-out property <string> new_target;
+    in-out property <string> new_expiry;
+    in-out property <string> generate_domain;
+    in-out property <string> filters_json;
+    in-out property <string> vacation_json;
+    in-out property <string> import_path;
+    in-out property <string> export_result;
+    in-out property <string> export_result_open;
+
     in-out property <string> active: "overview";
     in-out property <string> title: "Admin console";
 
     callback on_select(index: int);
     callback on_refresh();
     callback on_logout();
+    callback refresh_panel(panel: string);
+    callback create_domain(name: string, desc: string);
+    callback update_domain(id: string, name: string, desc: string);
+    callback delete_domain(id: string);
+    callback verify_domain(id: string);
+    callback show_dns(id: string);
+    callback generate_dkim(domain_id: string);
+    callback create_user(email: string, password: string, kind: string, quota_mb: int);
+    callback toggle_user(id: string, active: bool);
+    callback reset_user_password(id: string, password: string);
+    callback create_alias(name: string, target: string);
+    callback update_alias(id: string, name: string, target: string);
+    callback delete_alias(id: string);
+    callback revoke_token(id: string);
+    callback save_filters(json: string);
+    callback save_vacation(json: string);
+    callback export_config();
+    callback import_config(path: string);
+    callback revoke_ban(ip: string);
 
     VerticalLayout {
         width: 100%;
@@ -35,13 +103,56 @@ export component AdminShell {
             VerticalLayout {
                 width: 100%;
                 height: 100%;
-                Card {
-                    Text {
-                        text: root.active;
-                        color: #93A0C8;
-                        font-size: 14px;
-                    }
+                spacing: 0px;
+
+                if root.active == "overview": OverviewPanel { rows: root.stats; audit: root.audit; }
+                if root.active == "server": ServerPanel { rows: root.stats; }
+                if root.active == "domains": DomainsPanel {
+                    rows: root.domains;
+                    new_name: root.new_name;
+                    new_desc: root.new_desc;
+                    on_create(name, desc) => root.create_domain(name, desc);
+                    on_delete(id) => root.delete_domain(id);
+                    on_verify(id) => root.verify_domain(id);
+                    on_dns(id) => root.show_dns(id);
+                    on_dkim(id) => root.generate_dkim(id);
                 }
+                if root.active == "users": UsersPanel {
+                    rows: root.users;
+                    new_email: root.new_email;
+                    new_password: root.new_password;
+                    new_quota: root.new_quota;
+                    new_kind: root.new_kind;
+                    on_create(email, password, kind, quota) => root.create_user(email, password, kind, quota);
+                    on_toggle(id, active) => root.toggle_user(id, active);
+                    on_reset_password(id, password) => root.reset_user_password(id, password);
+                }
+                if root.active == "aliases": AliasesPanel {
+                    rows: root.aliases;
+                    new_name: root.new_name;
+                    new_target: root.new_target;
+                    on_create(name, target) => root.create_alias(name, target);
+                    on_update(id, name, target) => root.update_alias(id, name, target);
+                    on_delete(id) => root.delete_alias(id);
+                }
+                if root.active == "quota": QuotaPanel { rows: root.users; stats: root.stats; }
+                if root.active == "queues": QueuesPanel { rows: root.queues; }
+                if root.active == "dkim": DkimPanel { rows: root.dkim; generate_domain: root.generate_domain; on_generate(id) => root.generate_dkim(id); }
+                if root.active == "filters": FiltersPanel { rows: root.filters; json: root.filters_json; on_save(json) => root.save_filters(json); }
+                if root.active == "vacation": VacationPanel { rows: root.vacation; json: root.vacation_json; on_save(json) => root.save_vacation(json); }
+                if root.active == "dmarc": DmarcPanel { rows: root.dmarc; }
+                if root.active == "audit": AuditPanel { rows: root.audit; }
+                if root.active == "bans": BansPanel { rows: root.bans; on_lift(ip) => root.revoke_ban(ip); }
+                if root.active == "tokens": TokensPanel { rows: root.tokens; on_revoke(id) => root.revoke_token(id); }
+                if root.active == "config": ConfigPanel {
+                    export_result: root.export_result;
+                    export_result_open: root.export_result_open;
+                    import_path: root.import_path;
+                    on_export => root.export_config();
+                    on_import(path) => root.import_config(path);
+                    on_export_result_close => { root.export_result_open = ""; };
+                }
+                if root.active == "account": AccountPanel { error: root.admin_error; }
             }
         }
     }

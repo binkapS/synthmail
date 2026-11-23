@@ -1,0 +1,53 @@
+// DkimPanel — DKIM keys per domain + generate + status.
+import { Card } from "../components/card.slint";
+import { Badge } from "../components/badge.slint";
+import { Button } from "../components/button.slint";
+import { TextField } from "../components/text-field.slint";
+import { EmptyState } from "../components/empty-state.slint";
+
+export component DkimPanel {
+    in-out property <[DkimRow]> rows;
+    in-out property <bool> loading;
+    in-out property <string> error;
+    in-out property <string> generate_domain;
+
+    callback on_refresh();
+    callback on_generate(domain_id: string);
+    callback on_copy_record(text: string); // copied fingerprint/record text (display)
+
+    VerticalLayout {
+        width: 100%;
+        height: auto;
+        spacing: 10px;
+
+        Card {
+            VerticalLayout {
+                Text { text: "DKIM keys"; color: #F2F5FF; font-size: 18px; font-weight: 700; }
+                Text { text: "One RSA-2048 or Ed25519 key per domain. Selector: default.", color: #93A0C8; font-size: 12px; }
+                TextField { label: "Generate for domain"; placeholder: "example.com"; text: root.generate_domain; }
+                Button { text: "Generate key";
+                         clicked => { if root.generate_domain != "" { on_generate(root.generate_domain); } } }
+            }
+        }
+
+        Card {
+            VerticalLayout {
+                spacing: 0px;
+                if rows.row_count() == 0:
+                    EmptyState { text: "No DKIM keys."; }
+                for row in rows:
+                    HorizontalLayout {
+                        width: 100%;
+                        height: 56px;
+                        spacing: 8px;
+                        padding: 8px;
+                        Text { text: row.domain; color: #F2F5FF; font-size: 14px; font-weight: 500; width: 100%; }
+                        Badge { text: row.key_type; color: "#2D3D64"; text-color: "#93A0C8"; }
+                        Badge { text: row.status; color: row.status == "ok" ? "#10B98129" : "#F8717117";
+                                text-color: row.status == "ok" ? "#34D399" : "#F87171"; }
+                    }
+                }
+            }
+        }
+    }
+}

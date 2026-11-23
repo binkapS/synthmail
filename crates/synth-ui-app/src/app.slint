@@ -41,16 +41,13 @@ export component App inherits Window {
     // ---- admin panel state (Rust-driven) ----
     in-out property <string> active: "overview"; // AdminShell.active mirror
     in-out property <string> admin_error: "";
-    in-out property <bool> admin_loading;
-    in-out property <string> dns_data: ""; // DNS modal body (show_dns)
-    in-out property <string> dns_title: "";
-    in-out property <string> dkim_modal_data: ""; // DKIM generated modal (generate_dkim)
-    in-out property <string> create_token_secret: ""; // token modal (one-time)
-    in-out property <string> export_result: ""; // config export text
-    in-out property <string> export_result_open: ""; // show export modal
-    in-out property <string> import_error: "";
-    in-out property <string> dns_error: "";
-    in-out property <string> dkim_error: "";
+    in-out property <string> domains_new_name: "";
+    in-out property <string> domains_new_desc: "";
+    in-out property <string> filters_json: "";
+    in-out property <string> vacation_json: "";
+    in-out property <string> export_result: "";
+    in-out property <string> export_result_open: "";
+    in-out property <string> import_path: "";
 
     callback refresh_panel(panel: string);
     callback create_domain(name: string, desc: string);
@@ -72,10 +69,11 @@ export component App inherits Window {
     callback save_vacation(json: string);
     callback export_config();
     callback import_config(json: string);
-    callback export_result_close();
     callback refresh_queues();
     callback refresh_stats();
     callback revoke_ban(ip: string);
+    callback on_export_config();
+    callback on_import_config(path: string);
 
     if screen == Screen.Login: LoginScreen {
         error: root.login_error;
@@ -88,9 +86,54 @@ export component App inherits Window {
     }
     if screen == Screen.Admin: AdminShell {
         active: root.active;
+        domains: root.domains;
+        users: root.users;
+        aliases: root.aliases;
+        tokens: root.tokens;
+        audit: root.audit;
+        dkim: root.dkim;
+        filters: root.filters;
+        vacation: root.vacation;
+        dmarc: root.dmarc;
+        bans: root.bans;
+        config: root.config;
+        queues: root.queues;
+        stats: root.stats;
+        new_name: root.new_name;
+        new_desc: root.new_desc;
+        new_email: root.new_email;
+        new_password: root.new_password;
+        new_quota: root.new_quota;
+        new_kind: root.new_kind;
+        new_target: root.new_target;
+        new_expiry: root.new_expiry;
+        generate_domain: root.generate_domain;
+        filters_json: root.filters_json;
+        vacation_json: root.vacation_json;
+        import_path: root.import_path;
+        export_result: root.export_result;
+        export_result_open: root.export_result_open;
         on_select(index) => root.select_tab(index);
         on_refresh => root.refresh_panel(root.active);
         on_logout => root.logout();
+        create_domain(name, desc) => root.create_domain(name, desc);
+        update_domain(id, name, desc) => root.update_domain(id, name, desc);
+        delete_domain(id) => root.delete_domain(id);
+        verify_domain(id) => root.verify_domain(id);
+        show_dns(id) => root.show_dns(id);
+        generate_dkim(domain_id) => root.generate_dkim(domain_id);
+        create_user(email, password, kind, quota_mb) => root.create_user(email, password, kind, quota_mb);
+        toggle_user(id, active) => root.toggle_user(id, active);
+        reset_user_password(id, password) => root.reset_user_password(id, password);
+        create_alias(name, target) => root.create_alias(name, target);
+        update_alias(id, name, target) => root.update_alias(id, name, target);
+        delete_alias(id) => root.delete_alias(id);
+        revoke_token(id) => root.revoke_token(id);
+        save_filters(json) => root.save_filters(json);
+        save_vacation(json) => root.save_vacation(json);
+        export_config() => root.on_export_config();
+        import_config(path) => root.on_import_config(path);
+        revoke_ban(ip) => root.revoke_ban(ip);
     }
     if screen == Screen.Mail: MailScreen {
         on_refresh => {};

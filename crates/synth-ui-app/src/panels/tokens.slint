@@ -1,0 +1,47 @@
+// TokensPanel — API tokens table + create form + revoke actions.
+import { Card } from "../components/card.slint";
+import { Button } from "../components/button.slint";
+import { TextField } from "../components/text-field.slint";
+import { EmptyState } from "../components/empty-state.slint";
+
+export component TokensPanel {
+    in-out property <[TokenRow]> rows;
+    in-out property <string> new_name;
+    in-out property <string> new_expiry; // days
+
+    callback on_create(name: string, expires_in_days: int);
+    callback on_revoke(id: string);
+
+    VerticalLayout {
+        width: 100%;
+        height: auto;
+        spacing: 10px;
+
+        Card {
+            VerticalLayout {
+                spacing: 10px;
+                Text { text: "API tokens"; color: #F2F5FF; font-size: 18px; font-weight: 700; }
+                TextField { label: "Token name"; placeholder: "CI runner"; text: new_name; }
+                Button { text: "Create token";
+                         clicked => { if new_name != "" { on_create(new_name, (new_expiry != "" ? new_expiry : "30").parse(int)); } } }
+            }
+        }
+
+        Card {
+            VerticalLayout {
+                spacing: 0px;
+                if rows.row_count() == 0: EmptyState { text: "No API tokens."; }
+                for row in rows:
+                    HorizontalLayout {
+                        width: 100%;
+                        height: 56px;
+                        spacing: 8px;
+                        padding: 8px;
+                        Text { text: row.name; color: #F2F5FF; font-size: 14px; font-weight: 500; width: 100%; }
+                        Text { text: row.expiry; color: #93A0C8; font-size: 12px; width: 100%; }
+                        TouchArea { width: 96px; height: 32px; clicked => on_revoke(row.id); Text { text: "Revoke"; color: #F87171; font-size: 12px; } }
+                    }
+            }
+        }
+    }
+}
