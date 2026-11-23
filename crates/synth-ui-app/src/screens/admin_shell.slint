@@ -159,7 +159,7 @@ export component AdminShell {
                     rows: root.tokens;
                     new_name: root.new_name;
                     new_expiry: root.new_expiry;
-                    on_create(name, expires) => root.create_token(name, expires);
+                    on_create(name, expires) => create_token(name, expires);
                     on_revoke(id) => root.revoke_token(id);
                 }
                 if root.active == "config": ConfigPanel {

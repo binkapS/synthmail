@@ -483,9 +483,10 @@ pub fn delete_alias(store: &AdminStore, id: SharedString) -> Result<(), ApiError
     if r.is_ok() { refresh_panel(store, "aliases"); }
     r
 }
-pub fn create_token(store: &AdminStore, name: SharedString, expires_in_days: i32) -> Result<String, ApiError> {
+pub fn create_token(store: &AdminStore, name: SharedString, expires_in_days: SharedString) -> Result<String, ApiError> {
     let c = crate::store::auth::client();
-    store.create_token(&c, &name.to_string(), expires_in_days as i64)
+    let days: i64 = expires_in_days.to_string().parse().unwrap_or(30);
+    store.create_token(&c, &name.to_string(), days)
 }
 pub fn revoke_token(store: &AdminStore, id: SharedString) -> Result<(), ApiError> {
     let c = crate::store::auth::client();

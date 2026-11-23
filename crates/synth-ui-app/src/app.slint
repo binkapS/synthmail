@@ -137,6 +137,7 @@ export component App inherits Window {
         update_alias(id, name, target) => root.update_alias(id, name, target);
         delete_alias(id) => root.delete_alias(id);
         revoke_token(id) => root.revoke_token(id);
+        create_token(name, expires) => root.create_token(name, expires);
         save_filters(json) => root.save_filters(json);
         save_vacation(json) => root.save_vacation(json);
         export_config() => root.on_export_config();
