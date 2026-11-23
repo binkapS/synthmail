@@ -1,6 +1,11 @@
 // SynthMail Desktop — root window. Holds screen state and routes to the
 // active screen. Rust owns data (models, async behavior); Slint owns render.
 import { LoginScreen } from "screens/login.slint";
+import { DashboardScreen } from "screens/dashboard.slint";
+import { AdminShell } from "screens/admin_shell.slint";
+import { MailScreen } from "screens/mail.slint";
+import { AccountScreen } from "screens/account.slint";
+import { ErrorScreen } from "screens/error.slint";
 
 export enum Screen { Login, Dashboard, Admin, Mail, Account, Error }
 
@@ -12,12 +17,32 @@ export component App inherits Window {
     in-out property <bool> login_loading;
 
     callback request_login(email: string, password: string, totp: string);
-    callback go_to(screen: Screen);
     callback logout();
+    callback go_to(screen: Screen);
+    callback select_tab(index: int);
 
     if screen == Screen.Login: LoginScreen {
         error: root.login_error;
         loading: root.login_loading;
         submit(email, password, totp) => root.request_login(email, password, totp);
+    }
+    if screen == Screen.Dashboard: DashboardScreen {
+        on_go_admin => root.go_to(Screen.Admin);
+        on_go_mail => root.go_to(Screen.Mail);
+    }
+    if screen == Screen.Admin: AdminShell {
+        on_select(index) => root.select_tab(index);
+        on_refresh => root.select_tab(0);
+        on_logout => root.logout();
+    }
+    if screen == Screen.Mail: MailScreen {
+        on_refresh => {};
+        on_logout => root.logout();
+    }
+    if screen == Screen.Account: AccountScreen {
+        on_logout => root.logout();
+    }
+    if screen == Screen.Error: ErrorScreen {
+        retry => root.go_to(Screen.Login);
     }
 }

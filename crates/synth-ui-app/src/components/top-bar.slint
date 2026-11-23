@@ -1,0 +1,34 @@
+// TopBar — brand mark + title, Refresh, DAV, Logout actions.
+export component TopBar {
+    in-out property <string> title: "";
+
+    callback on_refresh();
+    callback on_dav();
+    callback on_logout();
+
+    VerticalLayout {
+        width: 100%;
+        height: 64px;
+        alignment: center;
+
+        Rectangle {
+            border-radius: 20px;
+            width: 260px;
+            height: 40px;
+
+            Text {
+                text: root.title;
+                color: #F2F5FF;
+                font-size: 16px;
+                font-weight: 700;
+                horizontal-alignment: center;
+            }
+        }
+
+        TouchArea {
+            width: 52px;
+            height: 52px;
+            clicked => { root.on_refresh(); }
+        }
+    }
+}

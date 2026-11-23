@@ -1,0 +1,41 @@
+// Sidebar — admin console navigation (16 tabs). Active item highlights.
+// Icons are per-tab colored tiles; Phase 3 replaces with SVG icons.
+export component Sidebar {
+    in-out property <string> active: "overview";
+    in-out property <string> user: "";
+
+    callback on_select(index: int);
+    callback on_logout();
+
+    VerticalLayout {
+        width: 240px;
+        height: 100%;
+        spacing: 4px;
+
+        // 9 nav tiles (each 64px tall) + logout tile at the bottom.
+        TouchArea { width: 100%; height: 64px; clicked => { root.on_select(0); } }
+        TouchArea { width: 100%; height: 64px; clicked => { root.on_select(1); } }
+        TouchArea { width: 100%; height: 64px; clicked => { root.on_select(2); } }
+        TouchArea { width: 100%; height: 64px; clicked => { root.on_select(3); } }
+        TouchArea { width: 100%; height: 64px; clicked => { root.on_select(4); } }
+        TouchArea { width: 100%; height: 64px; clicked => { root.on_select(5); } }
+        TouchArea { width: 100%; height: 64px; clicked => { root.on_select(6); } }
+        TouchArea { width: 100%; height: 64px; clicked => { root.on_select(7); } }
+        TouchArea { width: 100%; height: 64px; clicked => { root.on_select(8); } }
+        TouchArea { width: 100%; height: 64px; clicked => { root.on_select(9); } }
+        TouchArea { width: 100%; height: 64px; clicked => { root.on_select(10); } }
+        TouchArea { width: 100%; height: 64px; clicked => { root.on_select(11); } }
+        TouchArea { width: 100%; height: 64px; clicked => { root.on_select(12); } }
+        TouchArea { width: 100%; height: 64px; clicked => { root.on_select(13); } }
+        TouchArea { width: 100%; height: 64px; clicked => { root.on_select(14); } }
+        TouchArea { width: 100%; height: 64px; clicked => { root.on_select(15); } }
+
+        Rectangle { width: 100%; height: 4px; }
+
+        TouchArea {
+            width: 100%;
+            height: 64px;
+            clicked => { root.on_logout(); }
+        }
+    }
+}

@@ -3,7 +3,7 @@
 use crate::api::{ApiClient, DEFAULT_CONTROL_URL, DEFAULT_WEBMAIL_URL};
 use crate::store::token::TokenStore;
 use crate::{App, Screen};
-use slint::{ComponentHandle, SharedString, Weak};
+use slint::{SharedString, Weak};
 
 fn client() -> ApiClient {
     ApiClient::new(
@@ -34,7 +34,8 @@ pub fn request_login(app: &Weak<App>, email: SharedString, password: SharedStrin
                 Ok(resp) => {
                     if let Some(t) = &resp.token {
                         TokenStore::save(t);
-                        app.set_screen(Screen::Mail); // default landing (admin → Admin via Go)
+                        // Parity: admin → Dashboard, user → Mail (old /login).
+                        app.set_screen(if resp.is_admin() { Screen::Dashboard } else { Screen::Mail });
                     } else {
                         app.set_login_error("login response contained no token".into());
                     }
@@ -45,39 +46,4 @@ pub fn request_login(app: &Weak<App>, email: SharedString, password: SharedStrin
     });
 }
 
-/// Restore session on startup: if a token exists and is still valid, jump to
-/// the right screen (admin/mail). Otherwise the login screen stays.
-pub fn bootstrap(app: &App) {
-    let Some(token) = TokenStore::load() else { return };
-    let app_weak = app.as_weak();
-    std::thread::spawn(move || {
-        let result = client_with_token(&token).me();
-        let _ = slint::invoke_from_event_loop(move || {
-            let Some(app) = app_weak.upgrade() else { return };
-            match result {
-                Ok(me) => {
-                    let screen = if matches!(me.kind.as_deref(), Some("admin" | "superadmin")) {
-                        Screen::Admin
-                    } else {
-                        Screen::Mail
-                    };
-                    app.set_screen(screen);
-                }
-                Err(e) => {
-                    if e.status == Some(401) {
-                        TokenStore::clear();
-                    }
-                    // stays on Login
-                }
-            }
-        });
-    });
-}
-
-fn client_with_token(token: &str) -> ApiClient {
-    ApiClient::new(
-        &std::env::var("SYNTH_CONTROL_URL").unwrap_or_else(|_| DEFAULT_CONTROL_URL.into()),
-        &std::env::var("SYNTH_WEBMAIL_URL").unwrap_or_else(|_| DEFAULT_WEBMAIL_URL.into()),
-        Some(token.to_string()),
-    )
-}
+// (startup restore of sessions lives in store::shell::bootstrap)

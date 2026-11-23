@@ -1,9 +1,10 @@
 // Card — panel container: rounded (12px), elevated surface, hairline divider.
-export component Card {
-    in property <length> min-width: 0px;
-    width: 100%;
-    height: auto;
+// Uses Slint Rectangle styling via inheritance.
+export component Card inherits Rectangle {
     border-radius: 12px;
     background: #121A32;
-    border: 1px solid #2D3D64;
+    border-width: 1px;
+    border-color: #2D3D64;
+    width: 100%;
+    height: 100%;
 }

@@ -1,0 +1,48 @@
+// AdminShell — desktop admin console: TopBar + Sidebar + panel content.
+import { Card } from "../components/card.slint";
+import { TopBar } from "../components/top-bar.slint";
+import { Sidebar } from "../components/sidebar.slint";
+
+export component AdminShell {
+    in-out property <string> active: "overview";
+    in-out property <string> title: "Admin console";
+
+    callback on_select(index: int);
+    callback on_refresh();
+    callback on_logout();
+
+    VerticalLayout {
+        width: 100%;
+        height: 100%;
+        spacing: 12px;
+
+        TopBar {
+            title: root.title;
+            on_refresh => root.on_refresh();
+            on_logout => root.on_logout();
+        }
+
+        HorizontalLayout {
+            width: 100%;
+            height: 100%;
+
+            Sidebar {
+                active: root.active;
+                on_select(index) => root.on_select(index);
+                on_logout => root.on_logout();
+            }
+
+            VerticalLayout {
+                width: 100%;
+                height: 100%;
+                Card {
+                    Text {
+                        text: root.active;
+                        color: #93A0C8;
+                        font-size: 14px;
+                    }
+                }
+            }
+        }
+    }
+}

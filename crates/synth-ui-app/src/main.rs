@@ -4,7 +4,7 @@ mod store;
 
 slint::include_modules!();
 
-use slint::{ComponentHandle, Weak};
+use slint::ComponentHandle;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = App::new()?;
@@ -17,7 +17,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    store::auth::bootstrap(&app);
+    {
+        let app_weak = app.as_weak();
+        app.on_go_to(move |screen| {
+            store::shell::go_to(&app_weak, screen);
+        });
+        let app_weak = app.as_weak();
+        app.on_logout(move || {
+            store::shell::go_to(&app_weak, Screen::Login);
+        });
+    }
+
+    store::shell::bootstrap(&app);
+
     app.set_screen(Screen::Login);
 
     app.run()?;

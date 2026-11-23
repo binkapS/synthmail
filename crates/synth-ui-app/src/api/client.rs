@@ -22,6 +22,7 @@ impl std::error::Error for ApiError {}
 
 pub struct ApiClient {
     base_url: String,
+    #[allow(dead_code)] // used by webmail calls in Phase 4 (mail screen)
     webmail_url: String,
     http: reqwest::blocking::Client,
     token: Option<String>,
@@ -47,6 +48,7 @@ impl ApiClient {
                http, token }
     }
 
+    #[allow(dead_code)] // used by admin screens later
     pub fn with_token(&mut self, token: Option<String>) { self.token = token; }
 
     fn call(&self, method: reqwest::Method, url: &str, body: Option<&impl Serialize>)
@@ -83,11 +85,13 @@ impl ApiClient {
         parse_json(&text)
     }
 
+    #[allow(dead_code)] // used by admin screens in Phase 3+
     pub fn put<T: for<'de> Deserialize<'de>, B: Serialize>(&self, path: &str, body: &B) -> Result<T, ApiError> {
         let text = self.call(reqwest::Method::PUT, &format!("{}{path}", self.base_url), Some(body))?;
         parse_json(&text)
     }
 
+    #[allow(dead_code)] // used by admin screens in Phase 3+
     pub fn delete<T: for<'de> Deserialize<'de>>(&self, path: &str) -> Result<T, ApiError> {
         let text = self.call(reqwest::Method::DELETE, &format!("{}{path}", self.base_url), None::<&serde_json::Value>)?;
         parse_json(&text)
@@ -106,7 +110,8 @@ impl ApiClient {
         self.get("/api/v1/auth/me")
     }
 
-    // ---- webmail ----
+    // ---- webmail (Phase 4: mail screen) ----
+    #[allow(dead_code)]
     pub fn mail_folders(&self) -> Result<serde_json::Value, ApiError> {
         self.get(&format!("{}/api/v1/mail/folders", self.webmail_url))
     }

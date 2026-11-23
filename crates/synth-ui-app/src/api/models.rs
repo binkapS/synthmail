@@ -5,8 +5,9 @@ use serde::Deserialize;
 pub struct LoginResp {
     pub token: Option<String>,
     pub kind: Option<String>, // "user" | "admin" | "superadmin"
+    #[allow(dead_code)] // read in later phases (e.g. account screen)
     pub email: Option<String>,
-    #[serde(default)]
+    #[allow(dead_code)]
     pub force_password_change: bool,
 }
 
@@ -18,8 +19,9 @@ impl LoginResp {
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct MeResp {
+    #[allow(dead_code)] // read in later phases (e.g. account screen)
     pub email: Option<String>,
     pub kind: Option<String>,
-    #[serde(default)]
+    #[allow(dead_code)]
     pub force_password_change: bool,
 }

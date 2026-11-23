@@ -1,0 +1,33 @@
+// MailScreen — 3-pane mail client (folders · list · reading pane). Rust fills
+// models and actions (Phase 4).
+import { TopBar } from "../components/top-bar.slint";
+
+export component MailScreen {
+    callback on_refresh();
+    callback on_logout();
+
+    HorizontalLayout {
+        width: 100%;
+        height: 100%;
+
+        VerticalLayout {
+            width: 240px;
+            height: 100%;
+
+            TopBar {
+                title: "Mail";
+                on_refresh => root.on_refresh();
+                on_logout => root.on_logout();
+            }
+        }
+
+        HorizontalLayout {
+            width: 100%;
+            height: 100%;
+            Text {
+                text: "Webmail — Phase 4";
+                color: #5C6CA0;
+            }
+        }
+    }
+}
