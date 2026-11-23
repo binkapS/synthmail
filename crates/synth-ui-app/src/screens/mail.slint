@@ -1,10 +1,36 @@
-// MailScreen — 3-pane mail client (folders · list · reading pane). Rust fills
-// models and actions (Phase 4).
+// MailScreen — 3-pane mail client: folders · messages · reading pane.
 import { TopBar } from "../components/top-bar.slint";
+import { Card } from "../components/card.slint";
+import { Spinner } from "../components/spinner.slint";
+import { MailRow, MailFull } from "../models.slint";
+import { TextField } from "../components/text-field.slint";
+import { TextArea } from "../components/text-area.slint";
+import { Button } from "../components/button.slint";
+import { EmptyState } from "../components/empty-state.slint";
+import { ErrorBanner } from "../components/error-banner.slint";
 
 export component MailScreen {
-    callback on_refresh();
+    in-out property <[string]> folders;
+    in-out property <[MailRow]> messages;
+    in-out property <MailFull> full;
+    in-out property <string> selected_folder: "INBOX";
+    in-out property <int> selected_uid;
+    in-out property <bool> compose_mode;
+    in-out property <string> compose_to;
+    in-out property <string> compose_subject;
+    in-out property <string> compose_body;
+    in-out property <string> reply_text;
+    in-out property <bool> loading_messages;
+    in-out property <string> error;
+    in-out property <string> info;
+
+    callback on_compose();
     callback on_logout();
+    callback on_select_folder(folder: string);
+    callback on_select_message(uid: int);
+    callback on_send(to: string, subject: string, body: string);
+    callback on_reply_send(to: string, text: string);
+    callback on_draft_delete(uid: int);
 
     HorizontalLayout {
         width: 100%;
@@ -13,21 +39,64 @@ export component MailScreen {
         VerticalLayout {
             width: 240px;
             height: 100%;
-
-            TopBar {
-                title: "Mail";
-                on_refresh => root.on_refresh();
-                on_logout => root.on_logout();
-            }
+            TopBar { title: "Mail"; }
+            Button { text: "+ Compose"; clicked => root.on_compose(); }
+            Text { text: "Folders"; color: #93A0C8; font-size: 11px; font-weight: 600; }
+            for f in folders:
+                TouchArea { width: 100%; height: 40px; clicked => on_select_folder(f);
+                    Text { text: f; color: #F2F5FF; font-size: 13px; } }
         }
 
-        HorizontalLayout {
+        VerticalLayout {
+            width: 340px;
+            height: 100%;
+            TopBar { title: ""; }
+            TextField { placeholder: "Search…"; width: 100%; }
+            Text { text: "Messages"; color: #93A0C8; font-size: 11px; font-weight: 600; }
+            if loading_messages: Spinner {}
+            if messages.length == 0: EmptyState { text: "No messages."; }
+            for m in messages:
+                TouchArea { width: 100%; height: 72px; clicked => on_select_message(m.uid);
+                    Text { text: m.from; color: #F2F5FF; font-size: 13px; font-weight: 500; }
+                    Text { text: m.subject; color: #F2F5FF; font-size: 13px; }
+                    Text { text: m.date; color: #93A0C8; font-size: 11px; }
+                }
+        }
+
+        VerticalLayout {
             width: 100%;
             height: 100%;
-            Text {
-                text: "Webmail — Phase 4";
-                color: #5C6CA0;
-            }
+            if compose_mode:
+                Card {
+                    VerticalLayout {
+                        Text { text: "Compose"; color: #F2F5FF; font-size: 20px; font-weight: 700; }
+                        TextField { label: "To"; placeholder: "recipient@example.com"; text: root.compose_to; }
+                        TextField { label: "Subject"; placeholder: "Subject"; text: root.compose_subject; }
+                        TextArea { text: root.compose_body; placeholder: "Body…"; rows: 12; }
+                        if root.error != "": ErrorBanner { message: root.error; }
+                        if root.info != "": Text { text: root.info; color: #34D399; font-size: 12px; }
+                        HorizontalLayout {
+                            Button { text: "Send"; clicked => on_send(root.compose_to, root.compose_subject, root.compose_body); }
+                            Button { text: "Cancel"; clicked => { root.compose_mode = false; } }
+                        }
+                    }
+                }
+            if !compose_mode && full.uid != 0:
+                Card {
+                    VerticalLayout {
+                        Text { text: full.subject; color: #F2F5FF; font-size: 20px; font-weight: 700; }
+                        Text { text: full.from; color: #93A0C8; font-size: 13px; }
+                        Text { text: full.date; color: #93A0C8; font-size: 11px; }
+                        if full.seen == false: Text { text: "unread"; color: #60A5FA; font-size: 11px; font-weight: 600; }
+                        Text { text: full.raw; color: #F2F5FF; font-size: 13px; }
+                        TextArea { text: root.reply_text; placeholder: "Write a reply…"; rows: 4; }
+                        Button { text: "Reply"; clicked => on_reply_send(full.from, root.reply_text); }
+                    }
+                }
+            if !compose_mode && full.uid == 0:
+                Card {
+                    Text { text: "Select a message to read."; color: #5C6CA0; font-size: 14px; }
+                }
         }
     }
 }

@@ -5,8 +5,9 @@ mod store;
 slint::include_modules!();
 
 use crate::store::admin::AdminStore;
-use slint::{ComponentHandle, ModelRc, VecModel};
+use slint::{ComponentHandle, ModelRc, SharedString, Timer, TimerMode, VecModel};
 use std::rc::Rc;
+use std::time::Duration;
 
 /// TAB_NAMES: AdminShell tab order (must match Sidebar).
 const TAB_NAMES: [&str; 16] =
@@ -100,6 +101,50 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
           }
       }); }
     { let a = admin.clone(); app.on_revoke_ban(move |ip| { store::admin::revoke_ban(&a, ip).ok(); }); }
+
+    // ---- Mail handlers ----
+    let mail = Rc::new(store::mail::MailStore::new());
+    { let m = mail.clone(); let aw = app_weak.clone();
+      app.on_on_compose(move || { if let Some(app) = aw.upgrade() { app.set_compose_mode(true); } }); }
+    { let m = mail.clone(); let aw = app_weak.clone();
+      app.on_on_select_folder(move |f| { if let Some(app) = aw.upgrade() { app.set_selected_folder(f); m.load_messages(&app.get_selected_folder().to_string()); } }); }
+    { let m = mail.clone(); let aw = app_weak.clone();
+      app.on_on_select_message(move |uid| { if let Some(app) = aw.upgrade() { app.set_selected_uid(uid); m.load_full(uid); } }); }
+    { let m = mail.clone(); let aw = app_weak.clone();
+      app.on_on_send(move |to, subject, body| {
+          if let Some(app) = aw.upgrade() {
+              app.set_compose_mode(false);
+              app.set_compose_to(SharedString::default());
+              app.set_compose_subject(SharedString::default());
+              app.set_compose_body(SharedString::default());
+              app.set_mail_info(format!("Sent to {}.", to).into());
+          }
+          m.send(to, subject, body);
+      }); }
+    { let m = mail.clone(); let aw = app_weak.clone();
+      app.on_on_reply_send(move |to, text| { if let Some(app) = aw.upgrade() { app.set_reply_text(SharedString::default()); } m.reply(to, text); }); }
+    { let m = mail.clone(); let aw = app_weak.clone();
+      app.on_on_draft_delete(move |uid| {
+          if let Some(app) = aw.upgrade() {
+              app.set_mail_info("Draft deleted.".into());
+              m.delete_draft(uid);
+              m.load_messages(&app.get_selected_folder().to_string());
+          }
+      }); }
+    { let m = mail.clone(); let aw = app_weak.clone();
+      app.on_refresh_mail(move || { if let Some(app) = aw.upgrade() { m.load_folders(); m.load_messages(&app.get_selected_folder().to_string()); } }); }
+    // Poll messages every 30s while the Mail screen is open.
+    { let m = mail.clone(); let aw = app_weak.clone();
+      let timer = Timer::default();
+      timer.start(TimerMode::Repeated, Duration::from_secs(30), move || {
+          if let Some(app) = aw.upgrade() {
+              if app.get_screen() == Screen::Mail {
+                  m.load_messages(&app.get_selected_folder().to_string());
+              }
+          }
+      }); }
+
+    store::shell::bootstrap(&app);
 
     store::shell::bootstrap(&app);
     app.set_screen(Screen::Login);

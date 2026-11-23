@@ -7,7 +7,7 @@ import { MailScreen } from "screens/mail.slint";
 import { AccountScreen } from "screens/account.slint";
 import { ErrorScreen } from "screens/error.slint";
 import { DomainRow, UserRow, AliasRow, TokenRow, AuditRow, DkimRow, FilterRow,
-         VacationRow, DmarcRow, BanRow, ConfigRow, QueueRow, StatRow, MailRow } from "models.slint";
+         VacationRow, DmarcRow, BanRow, ConfigRow, QueueRow, StatRow, MailRow, MailFull } from "models.slint";
 
 export enum Screen { Login, Dashboard, Admin, Mail, Account, Error }
 
@@ -38,6 +38,21 @@ export component App inherits Window {
     in-out property <[QueueRow]> queues: [];
     in-out property <[StatRow]> stats: [];
 
+    // ---- mail state (Rust-driven) ----
+    in-out property <[string]> folders;
+    in-out property <[MailRow]> messages;
+    in-out property <MailFull> full;
+    in-out property <string> selected_folder: "INBOX";
+    in-out property <int> selected_uid;
+    in-out property <bool> compose_mode;
+    in-out property <string> compose_to;
+    in-out property <string> compose_subject;
+    in-out property <string> compose_body;
+    in-out property <string> reply_text;
+    in-out property <bool> loading_messages;
+    in-out property <string> mail_error;
+    in-out property <string> mail_info;
+
     // ---- admin panel state (Rust-driven) ----
     in-out property <string> active: "overview"; // AdminShell.active mirror
     in-out property <string> admin_error: "";
@@ -57,6 +72,13 @@ export component App inherits Window {
     in-out property <string> import_path: "";
 
     callback refresh_panel(panel: string);
+    callback refresh_mail();
+    callback on_compose();
+    callback on_select_folder(folder: string);
+    callback on_select_message(uid: int);
+    callback on_send(to: string, subject: string, body: string);
+    callback on_reply_send(to: string, text: string);
+    callback on_draft_delete(uid: int);
     callback create_domain(name: string, desc: string);
     callback update_domain(id: string, name: string, desc: string);
     callback delete_domain(id: string);
@@ -145,8 +167,26 @@ export component App inherits Window {
         revoke_ban(ip) => root.revoke_ban(ip);
     }
     if screen == Screen.Mail: MailScreen {
-        on_refresh => {};
-        on_logout => root.logout();
+        folders: root.folders;
+        messages: root.messages;
+        full: root.full;
+        selected_folder: root.selected_folder;
+        selected_uid: root.selected_uid;
+        compose_mode: root.compose_mode;
+        compose_to: root.compose_to;
+        compose_subject: root.compose_subject;
+        compose_body: root.compose_body;
+        reply_text: root.reply_text;
+        loading_messages: root.loading_messages;
+        error: root.mail_error;
+        info: root.mail_info;
+        on_compose => root.on_compose();
+        on_select_folder(f) => root.on_select_folder(f);
+        on_select_message(uid) => root.on_select_message(uid);
+        on_send(to, subject, body) => root.on_send(to, subject, body);
+        on_reply_send(to, text) => root.on_reply_send(to, text);
+        on_draft_delete(uid) => root.on_draft_delete(uid);
+        on_logout => root.go_to(Screen.Login);
     }
     if screen == Screen.Account: AccountScreen {
         on_logout => root.logout();
