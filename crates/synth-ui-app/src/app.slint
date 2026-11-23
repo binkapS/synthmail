@@ -1,0 +1,23 @@
+// SynthMail Desktop — root window. Holds screen state and routes to the
+// active screen. Rust owns data (models, async behavior); Slint owns render.
+import { LoginScreen } from "screens/login.slint";
+
+export enum Screen { Login, Dashboard, Admin, Mail, Account, Error }
+
+export component App inherits Window {
+    in-out property <Screen> screen: Screen.Login;
+
+    // ---- login state (Rust-driven) ----
+    in-out property <string> login_error: "";
+    in-out property <bool> login_loading;
+
+    callback request_login(email: string, password: string, totp: string);
+    callback go_to(screen: Screen);
+    callback logout();
+
+    if screen == Screen.Login: LoginScreen {
+        error: root.login_error;
+        loading: root.login_loading;
+        submit(email, password, totp) => root.request_login(email, password, totp);
+    }
+}

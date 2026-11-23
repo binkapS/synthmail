@@ -1,0 +1,28 @@
+// ErrorBanner — red alert box used across screens.
+export component ErrorBanner {
+    in-out property <string> message: "";
+    in-out property <string> detail: "";
+
+    Rectangle {
+        border-radius: 8px;
+        background: #F8717115;
+        border-width: 1px;
+        border-color: #F8717140;
+        width: 100%;
+        height: auto;
+
+        HorizontalLayout {
+            width: 100%;
+            height: auto;
+            padding: 12px;
+            spacing: 8px;
+
+            Text {
+                text: root.message;
+                color: #F87171;
+                font-size: 13px;
+                font-weight: 600;
+            }
+        }
+    }
+}

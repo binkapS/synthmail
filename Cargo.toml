@@ -11,6 +11,7 @@ members = [
 
     "crates/synth-smtp",
     "crates/synth-bench",
+    "crates/synth-ui-app",
 ]
 
 [workspace.package]

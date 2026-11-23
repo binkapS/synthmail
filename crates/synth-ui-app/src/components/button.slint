@@ -1,0 +1,38 @@
+// Button — text button. States: normal/hover/active/disabled (styling by hand).
+export component Button {
+    in-out property <string> text: "";
+    in-out property <bool> disabled;
+    in-out property <bool> busy;
+
+    callback clicked();
+
+    HorizontalLayout {
+        spacing: 6px;
+        padding: 8px;
+        width: 100%;
+        height: 40px;
+
+        Rectangle {
+            width: 100%;
+            height: 100%;
+            border-radius: 8px;
+            background: #121A32;
+            border-width: 1px;
+            border-color: #2D3D64;
+
+            Text {
+                text: root.text;
+                color: #F2F5FF;
+                font-size: 13px;
+                font-weight: 500;
+                horizontal-alignment: center;
+            }
+        }
+
+        TouchArea {
+            width: 100%;
+            height: 100%;
+            clicked => { root.clicked(); }
+        }
+    }
+}

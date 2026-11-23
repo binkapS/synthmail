@@ -1,0 +1,20 @@
+[package]
+name = "synth-ui-app"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+description = "SynthMail native desktop console (Slint) — admin console + webmail client."
+
+[dependencies]
+slint = { version = "1.19" }
+reqwest = { workspace = true, features = ["blocking"] }
+keyring = "3"
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+# (unit tests live in the modules; no extra deps needed yet)
+
+[build-dependencies]
+slint-build = "1.19"

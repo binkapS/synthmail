@@ -1,0 +1,64 @@
+// LoginScreen — sign-in form (parity: old /login). All state is internal;
+// Rust drives the network call via `submit` and reads results via App props.
+import { Button } from "../components/button.slint";
+import { TextField } from "../components/text-field.slint";
+import { Spinner } from "../components/spinner.slint";
+import { ErrorBanner } from "../components/error-banner.slint";
+
+export component LoginScreen {
+    in-out property <string> email: "";
+    in-out property <string> password: "";
+    in-out property <string> totp: "";
+    in-out property <bool> loading;
+    in-out property <string> error: "";
+
+    callback submit(email: string, password: string, totp: string);
+
+    VerticalLayout {
+        width: 440px;
+        height: 500px;
+        alignment: center;
+
+        Text {
+            text: "Sign in";
+            color: #93A0C8;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.08rem;
+            height: 20px;
+        }
+
+        Text {
+            text: "Access the mail platform with your account (TOTP supported).";
+            color: #5C6CA0;
+            font-size: 13px;
+            height: 36px;
+        }
+
+        VerticalLayout {
+            width: 100%;
+            height: 300px;
+            spacing: 16px;
+
+            TextField {
+                label: "Email";
+                placeholder: "you@example.com";
+                text: root.email;
+            }
+
+            TextField {
+                label: "Password";
+                placeholder: "••••••••";
+                text: root.password;
+            }
+
+            if root.error != "": ErrorBanner { message: root.error; }
+
+            Button {
+                text: root.loading ? "Signing in…" : "Sign in";
+                disabled: root.loading;
+                clicked => { submit(root.email, root.password, root.totp); }
+            }
+        }
+    }
+}
