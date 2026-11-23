@@ -2,6 +2,7 @@
 import { Card } from "../components/card.slint";
 import { Badge } from "../components/badge.slint";
 import { EmptyState } from "../components/empty-state.slint";
+import { DmarcRow } from "../models.slint";
 
 export component DmarcPanel {
     in-out property <[DmarcRow]> rows;
@@ -18,7 +19,7 @@ export component DmarcPanel {
         Card {
             VerticalLayout {
                 Text { text: "DMARC reports"; color: #F2F5FF; font-size: 18px; font-weight: 700; }
-                Text { text: "Aggregates ingested from reports.", color: #93A0C8; font-size: 12px; }
+                Text { text: "Aggregates ingested from reports."; color: #93A0C8; font-size: 12px; }
             }
         }
 
@@ -34,11 +35,11 @@ export component DmarcPanel {
                         spacing: 8px;
                         padding: 8px;
                         Text { text: row.domain; color: #F2F5FF; font-size: 14px; font-weight: 500; width: 100%; }
-                        Badge { text: row.aggregate_count + " reports"; color: "#2D3D64"; text-color: "#93A0C8"; }
+                        Badge { text: row.aggregate_count + " reports"; color: #2D3D64; text-color: #93A0C8; }
                         Text { text: row.last_received; color: #93A0C8; font-size: 12px; }
                     }
                 }
             }
         }
     }
-}
+

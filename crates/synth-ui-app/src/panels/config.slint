@@ -1,5 +1,6 @@
 // ConfigPanel — export/import config.
 import { Card } from "../components/card.slint";
+import { Button } from "../components/button.slint";
 import { TextField } from "../components/text-field.slint";
 import { ErrorBanner } from "../components/error-banner.slint";
 import { EmptyState } from "../components/empty-state.slint";
@@ -26,7 +27,7 @@ export component ConfigPanel {
                 if root.error != "": ErrorBanner { message: root.error; }
                 Button { text: "Export";
                          clicked => { on_export(); } }
-                Button { text: "Import",
+                Button { text: "Import";
                          clicked => { if root.import_path != "" { on_import(root.import_path); } } }
             }
         }
@@ -34,7 +35,7 @@ export component ConfigPanel {
         if root.export_result_open != "":
             Card {
                 Text { text: root.export_result; color: #93A0C8; font-size: 12px; }
-                TouchArea { width: 100%; height: 32px; clicked => on_export_result_close(); Text { text: "Close", color: #F2F5FF; font-size: 12px; } }
+                TouchArea { width: 100%; height: 32px; clicked => on_export_result_close(); Text { text: "Close"; color: #F2F5FF; font-size: 12px; } }
             }
     }
 }

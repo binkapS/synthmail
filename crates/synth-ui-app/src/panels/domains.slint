@@ -5,6 +5,7 @@ import { Button } from "../components/button.slint";
 import { TextField } from "../components/text-field.slint";
 import { ErrorBanner } from "../components/error-banner.slint";
 import { EmptyState } from "../components/empty-state.slint";
+import { DomainRow } from "../models.slint";
 
 export component DomainsPanel {
     in-out property <[DomainRow]> rows;
@@ -22,7 +23,6 @@ export component DomainsPanel {
 
     VerticalLayout {
         width: 100%;
-        height: auto;
         spacing: 10px;
 
         Card {
@@ -40,7 +40,7 @@ export component DomainsPanel {
         Card {
             VerticalLayout {
                 spacing: 0px;
-                if rows.row_count() == 0: EmptyState { text: "No domains."; }
+                if rows.length == 0: EmptyState { text: "No domains."; }
                 for row in rows:
                     HorizontalLayout {
                         width: 100%;
@@ -48,7 +48,7 @@ export component DomainsPanel {
                         spacing: 8px;
                         padding: 8px;
                         Text { text: row.name; color: #F2F5FF; font-size: 14px; font-weight: 500; width: 100%; }
-                        if row.verified: Badge { text: "verified"; color: "#10B98123"; text-color: "#34D399"; }
+                        if row.verified: Badge { text: "verified"; color: #10B98123; text-color: #34D399; }
                         TouchArea { width: 80px; height: 32px; clicked => on_verify(row.id); Text { text: "Verify"; color: #93A0C8; font-size: 12px; } }
                         TouchArea { width: 80px; height: 32px; clicked => on_dns(row.id); Text { text: "DNS"; color: #93A0C8; font-size: 12px; } }
                         TouchArea { width: 80px; height: 32px; clicked => on_dkim(row.id); Text { text: "DKIM"; color: #93A0C8; font-size: 12px; } }

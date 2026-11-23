@@ -4,6 +4,7 @@ import { Badge } from "../components/badge.slint";
 import { TextField } from "../components/text-field.slint";
 import { EmptyState } from "../components/empty-state.slint";
 import { ErrorBanner } from "../components/error-banner.slint";
+import { FilterRow } from "../models.slint";
 
 export component FiltersPanel {
     in-out property <[FilterRow]> rows;
@@ -40,10 +41,10 @@ export component FiltersPanel {
                         padding: 8px;
                         Text { text: row.name; color: #F2F5FF; font-size: 14px; font-weight: 500; width: 100%; }
                         Text { text: row.action; color: #93A0C8; font-size: 12px; width: 30%; }
-                        Badge { text: "pri " + row.priority; color: "#2D3D64"; text-color: "#93A0C8"; }
+                        Badge { text: "pri " + row.priority; color: #2D3D64; text-color: #93A0C8; }
                     }
                 }
             }
         }
     }
-}
+

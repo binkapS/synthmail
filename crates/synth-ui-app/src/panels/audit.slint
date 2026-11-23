@@ -1,6 +1,7 @@
 // AuditPanel — recent audit entries with limit select + refresh.
 import { Card } from "../components/card.slint";
 import { EmptyState } from "../components/empty-state.slint";
+import { AuditRow } from "../models.slint";
 
 export component AuditPanel {
     in-out property <[AuditRow]> rows;
@@ -42,4 +43,4 @@ export component AuditPanel {
             }
         }
     }
-}
+

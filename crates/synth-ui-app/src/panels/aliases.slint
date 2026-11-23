@@ -5,6 +5,7 @@ import { Button } from "../components/button.slint";
 import { TextField } from "../components/text-field.slint";
 import { ErrorBanner } from "../components/error-banner.slint";
 import { EmptyState } from "../components/empty-state.slint";
+import { AliasRow } from "../models.slint";
 
 export component AliasesPanel {
     in-out property <[AliasRow]> rows;
@@ -21,7 +22,6 @@ export component AliasesPanel {
 
     VerticalLayout {
         width: 100%;
-        height: auto;
         spacing: 10px;
 
         Card {
@@ -56,4 +56,4 @@ export component AliasesPanel {
             }
         }
     }
-}
+
