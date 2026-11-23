@@ -104,7 +104,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ---- Mail handlers ----
     let mail = Rc::new(store::mail::MailStore::new());
-    { let m = mail.clone(); let aw = app_weak.clone();
+    { let aw = app_weak.clone();
       app.on_on_compose(move || { if let Some(app) = aw.upgrade() { app.set_compose_mode(true); } }); }
     { let m = mail.clone(); let aw = app_weak.clone();
       app.on_on_select_folder(move |f| { if let Some(app) = aw.upgrade() { app.set_selected_folder(f); m.load_messages(&app.get_selected_folder().to_string()); } }); }

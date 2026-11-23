@@ -2,7 +2,7 @@
 // Fetch via worker threads + channel + slint::Timer drain on main thread.
 use crate::api::{ApiClient, ApiError};
 use crate::slint_generatedApp::{MailFull, MailRow};
-use slint::{Model, SharedString, VecModel};
+use slint::{SharedString, VecModel};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::mpsc;
