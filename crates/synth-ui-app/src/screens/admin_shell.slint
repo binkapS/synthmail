@@ -1,7 +1,4 @@
 // AdminShell — desktop admin console: TopBar + Sidebar + panel content.
-// Root data props are bound from App (root = this component); panels read
-// their data via `root.<model>` (root = AdminShell); actions fire callbacks
-// wired to App in app.slint.
 import { TopBar } from "../components/top-bar.slint";
 import { Sidebar } from "../components/sidebar.slint";
 import { OverviewPanel } from "../panels/overview.slint";
@@ -20,7 +17,8 @@ import { BansPanel } from "../panels/bans.slint";
 import { TokensPanel } from "../panels/tokens.slint";
 import { ConfigPanel } from "../panels/config.slint";
 import { AccountPanel } from "../panels/account.slint";
-import { DomainRow, UserRow, AliasRow, TokenRow, AuditRow, DkimRow, FilterRow, VacationRow, DmarcRow, BanRow, ConfigRow, QueueRow, StatRow } from "../models.slint";
+import { DomainRow, UserRow, AliasRow, TokenRow, AuditRow, DkimRow, FilterRow,
+         VacationRow, DmarcRow, BanRow, ConfigRow, QueueRow, StatRow } from "../models.slint";
 
 export component AdminShell {
     // ---- models (bound to App by App.slint) ----
@@ -38,7 +36,7 @@ export component AdminShell {
     in-out property <[QueueRow]> queues;
     in-out property <[StatRow]> stats;
 
-    // ---- form state (owned by AdminShell; panels read via root.*) ----
+    // ---- form state (owned by AdminShell) ----
     in-out property <string> new_name;
     in-out property <string> new_desc;
     in-out property <string> new_email;
@@ -139,9 +137,21 @@ export component AdminShell {
                 }
                 if root.active == "quota": QuotaPanel { rows: root.users; stats: root.stats; }
                 if root.active == "queues": QueuesPanel { rows: root.queues; }
-                if root.active == "dkim": DkimPanel { rows: root.dkim; generate_domain: root.generate_domain; on_generate(id) => root.generate_dkim(id); }
-                if root.active == "filters": FiltersPanel { rows: root.filters; json: root.filters_json; on_save(json) => root.save_filters(json); }
-                if root.active == "vacation": VacationPanel { rows: root.vacation; json: root.vacation_json; on_save(json) => root.save_vacation(json); }
+                if root.active == "dkim": DkimPanel {
+                    rows: root.dkim;
+                    generate_domain: root.generate_domain;
+                    on_generate(id) => root.generate_dkim(id);
+                }
+                if root.active == "filters": FiltersPanel {
+                    rows: root.filters;
+                    json: root.filters_json;
+                    on_save(json) => root.save_filters(json);
+                }
+                if root.active == "vacation": VacationPanel {
+                    rows: root.vacation;
+                    json: root.vacation_json;
+                    on_save(json) => root.save_vacation(json);
+                }
                 if root.active == "dmarc": DmarcPanel { rows: root.dmarc; }
                 if root.active == "audit": AuditPanel { rows: root.audit; }
                 if root.active == "bans": BansPanel { rows: root.bans; on_lift(ip) => root.revoke_ban(ip); }
@@ -165,7 +175,3 @@ export component AdminShell {
         }
     }
 }
-            }
-        }
-    }
-
