@@ -1,0 +1,100 @@
+// Shared row structs for admin tables (Slint structs; Rust: slint_generatedApp::*).
+export struct DomainRow {
+    id: string,
+    name: string,
+    description: string,
+    catch_all: bool,
+    verified: bool,
+    created_at: string,
+}
+
+export struct UserRow {
+    id: string,
+    email: string,
+    role: string,
+    status: string,
+    quota_used: int,
+    quota_total: int,
+}
+
+export struct AliasRow {
+    id: string,
+    name: string,
+    target: string,
+    status: string,
+}
+
+export struct TokenRow {
+    id: string,
+    name: string,
+    expiry: string,
+    created_at: string,
+    status: string,
+}
+
+export struct AuditRow {
+    time: string,
+    actor: string,
+    action: string,
+    target: string,
+    detail: string,
+}
+
+export struct DkimRow {
+    domain: string,
+    selector: string,
+    key_type: string,
+    status: string,
+}
+
+export struct FilterRow {
+    id: string,
+    name: string,
+    action: string,
+    priority: int,
+}
+
+export struct VacationRow {
+    domain: string,
+    enabled: bool,
+    start: string,
+    end: string,
+    subject: string,
+}
+
+export struct DmarcRow {
+    domain: string,
+    aggregate_count: int,
+    last_received: string,
+}
+
+export struct BanRow {
+    ip: string,
+    until: string,
+    reason: string,
+}
+
+export struct ConfigRow {
+    key: string,
+    value: string,
+}
+
+export struct QueueRow {
+    name: string,
+    depth: int,
+}
+
+export struct StatRow {
+    label: string,
+    value: string,
+    sub: string,
+}
+
+export struct MailRow {
+    uid: int,
+    from: string,
+    subject: string,
+    preview: string,
+    date: string,
+    seen: bool,
+}

@@ -2,4 +2,4 @@
 mod client;
 mod models;
 
-pub use client::{ApiClient, DEFAULT_CONTROL_URL, DEFAULT_WEBMAIL_URL};
+pub use client::{ApiClient, ApiError, DEFAULT_CONTROL_URL, DEFAULT_WEBMAIL_URL};

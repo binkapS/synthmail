@@ -6,6 +6,8 @@ import { AdminShell } from "screens/admin_shell.slint";
 import { MailScreen } from "screens/mail.slint";
 import { AccountScreen } from "screens/account.slint";
 import { ErrorScreen } from "screens/error.slint";
+import { DomainRow, UserRow, AliasRow, TokenRow, AuditRow, DkimRow, FilterRow,
+         VacationRow, DmarcRow, BanRow, ConfigRow, QueueRow, StatRow, MailRow } from "models.slint";
 
 export enum Screen { Login, Dashboard, Admin, Mail, Account, Error }
 
@@ -21,6 +23,60 @@ export component App inherits Window {
     callback go_to(screen: Screen);
     callback select_tab(index: int);
 
+    // ---- admin models (Rust-filled) ----
+    in-out property <[DomainRow]> domains: [];
+    in-out property <[UserRow]> users: [];
+    in-out property <[AliasRow]> aliases: [];
+    in-out property <[TokenRow]> tokens: [];
+    in-out property <[AuditRow]> audit: [];
+    in-out property <[DkimRow]> dkim: [];
+    in-out property <[FilterRow]> filters: [];
+    in-out property <[VacationRow]> vacation: [];
+    in-out property <[DmarcRow]> dmarc: [];
+    in-out property <[BanRow]> bans: [];
+    in-out property <[ConfigRow]> config: [];
+    in-out property <[QueueRow]> queues: [];
+    in-out property <[StatRow]> stats: [];
+
+    // ---- admin panel state (Rust-driven) ----
+    in-out property <string> active: "overview"; // AdminShell.active mirror
+    in-out property <string> admin_error: "";
+    in-out property <bool> admin_loading;
+    in-out property <string> dns_data: ""; // DNS modal body (show_dns)
+    in-out property <string> dns_title: "";
+    in-out property <string> dkim_modal_data: ""; // DKIM generated modal (generate_dkim)
+    in-out property <string> create_token_secret: ""; // token modal (one-time)
+    in-out property <string> export_result: ""; // config export text
+    in-out property <string> export_result_open: ""; // show export modal
+    in-out property <string> import_error: "";
+    in-out property <string> dns_error: "";
+    in-out property <string> dkim_error: "";
+
+    callback refresh_panel(panel: string);
+    callback create_domain(name: string, desc: string);
+    callback update_domain(id: string, name: string, desc: string);
+    callback delete_domain(id: string);
+    callback verify_domain(id: string);
+    callback show_dns(id: string);
+    callback generate_dkim(domain_id: string);
+    callback create_user(email: string, password: string, kind: string, quota_mb: int);
+    callback toggle_user(id: string, active: bool);
+    callback reset_user_password(id: string, password: string);
+    callback create_alias(name: string, target: string);
+    callback update_alias(id: string, name: string, target: string);
+    callback delete_alias(id: string);
+    callback create_token(name: string, expires_in_days: int);
+    callback revoke_token(id: string);
+    callback refresh_audit(limit: int);
+    callback save_filters(json: string);
+    callback save_vacation(json: string);
+    callback export_config();
+    callback import_config(json: string);
+    callback export_result_close();
+    callback refresh_queues();
+    callback refresh_stats();
+    callback revoke_ban(ip: string);
+
     if screen == Screen.Login: LoginScreen {
         error: root.login_error;
         loading: root.login_loading;
@@ -31,8 +87,9 @@ export component App inherits Window {
         on_go_mail => root.go_to(Screen.Mail);
     }
     if screen == Screen.Admin: AdminShell {
+        active: root.active;
         on_select(index) => root.select_tab(index);
-        on_refresh => root.select_tab(0);
+        on_refresh => root.refresh_panel(root.active);
         on_logout => root.logout();
     }
     if screen == Screen.Mail: MailScreen {

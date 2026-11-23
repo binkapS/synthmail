@@ -5,7 +5,8 @@ use crate::store::token::TokenStore;
 use crate::{App, Screen};
 use slint::{SharedString, Weak};
 
-fn client() -> ApiClient {
+/// Shared API client for admin actions (control plane; token from keyring).
+pub fn client() -> ApiClient {
     ApiClient::new(
         &std::env::var("SYNTH_CONTROL_URL").unwrap_or_else(|_| DEFAULT_CONTROL_URL.into()),
         &std::env::var("SYNTH_WEBMAIL_URL").unwrap_or_else(|_| DEFAULT_WEBMAIL_URL.into()),

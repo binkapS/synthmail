@@ -20,6 +20,7 @@ impl std::fmt::Display for ApiError {
 
 impl std::error::Error for ApiError {}
 
+#[derive(Clone)]
 pub struct ApiClient {
     base_url: String,
     #[allow(dead_code)] // used by webmail calls in Phase 4 (mail screen)
@@ -80,14 +81,14 @@ impl ApiClient {
         parse_json(&text)
     }
 
-    pub fn post<T: for<'de> Deserialize<'de>, B: Serialize>(&self, path: &str, body: &B) -> Result<T, ApiError> {
-        let text = self.call(reqwest::Method::POST, &format!("{}{path}", self.base_url), Some(body))?;
+    pub fn post<T: for<'de> Deserialize<'de>>(&self, path: &str, body: impl Serialize) -> Result<T, ApiError> {
+        let text = self.call(reqwest::Method::POST, &format!("{}{path}", self.base_url), Some(&body))?;
         parse_json(&text)
     }
 
     #[allow(dead_code)] // used by admin screens in Phase 3+
-    pub fn put<T: for<'de> Deserialize<'de>, B: Serialize>(&self, path: &str, body: &B) -> Result<T, ApiError> {
-        let text = self.call(reqwest::Method::PUT, &format!("{}{path}", self.base_url), Some(body))?;
+    pub fn put<T: for<'de> Deserialize<'de>>(&self, path: &str, body: impl Serialize) -> Result<T, ApiError> {
+        let text = self.call(reqwest::Method::PUT, &format!("{}{path}", self.base_url), Some(&body))?;
         parse_json(&text)
     }
 
