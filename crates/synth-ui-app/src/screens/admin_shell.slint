@@ -73,6 +73,7 @@ export component AdminShell {
     callback update_alias(id: string, name: string, target: string);
     callback delete_alias(id: string);
     callback revoke_token(id: string);
+    callback create_token(name: string, expires_in_days: string);
     callback save_filters(json: string);
     callback save_vacation(json: string);
     callback export_config();
