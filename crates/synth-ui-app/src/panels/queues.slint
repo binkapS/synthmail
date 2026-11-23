@@ -13,7 +13,6 @@ export component QueuesPanel {
 
     VerticalLayout {
         width: 100%;
-        height: auto;
         spacing: 10px;
 
         Card {
@@ -34,8 +33,7 @@ export component QueuesPanel {
                         spacing: 8px;
                         padding: 8px;
                         Text { text: row.name; color: #F2F5FF; font-size: 14px; font-weight: 500; width: 100%; }
-                        Badge { text: row.depth + " deferred"; color: row.depth > 0 ? "#FBBF2422" : "#2D3D64";
-                                text-color: row.depth > 0 ? "#FBBF24" : "#93A0C8"; }
+                        Badge { text: row.depth + " deferred"; }
                     }
                 }
             }
