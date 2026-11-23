@@ -106,8 +106,8 @@ export component AdminShell {
                 height: 100%;
                 spacing: 0px;
 
-                if root.active == "overview": OverviewPanel { rows: root.stats; audit: root.audit; }
-                if root.active == "server": ServerPanel { rows: root.stats; }
+                if root.active == "overview": OverviewPanel { stats: root.stats; audit: root.audit; }
+                if root.active == "server": ServerPanel { stats: root.stats; }
                 if root.active == "domains": DomainsPanel {
                     rows: root.domains;
                     new_name: root.new_name;
