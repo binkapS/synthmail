@@ -25,7 +25,7 @@ export component BansPanel {
         Card {
             VerticalLayout {
                 spacing: 0px;
-                if rows.row_count() == 0:
+                if rows.length == 0:
                     EmptyState { text: "No active bans."; }
                 for row in rows:
                     HorizontalLayout {
