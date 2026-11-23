@@ -558,6 +558,32 @@ if the project ever wants permissive terms. Legal review recommended at plan app
 
 ---
 
+## 9b. Residual Work Items (Phase 3b iteration log)
+
+While porting panels to Slint 1.19 syntax, these issues were identified during
+iteration (owner: app team during Phase 3b):
+
+1. **Panels**: several panels (`dkim`, `filters`, `vacation`, `dmarc`, `audit`,
+   `bans`, `config`, `queues`, `aliases`, `quota`, `overview`) had Slint
+   syntax issues — most common: multi-value `padding` (Slint takes single value),
+   `for`/`if` statement placement, and missing component imports (e.g. `Button`
+   in config.slint). Domains, users, tokens, overview, server compile clean.
+2. **stat-card.slint**: needs `import { StatRow } from "../models.slint";`.
+3. **app.slint**: `Element 'Window' does not have a property 'generate_domain'` etc. —
+   add the new form-field properties to the App root (`new_name`, `new_desc`,
+   `new_email`, `new_password`, `new_quota`, `new_kind`, `new_target`,
+   `new_expiry`, `generate_domain`, `filters_json`, `vacation_json`,
+   `import_path`, `export_result`, `export_result_open`) and wire them to
+   AdminShell in app.slint.
+4. **Sensitive-app follow-up**: `QuotaPanel` and `ServerPanel` read from
+   `root.stats` — review the refresh wiring (Rust `refresh_stats` +
+   `app.set_stats(ModelRc::new(VecModel::from(rows)))`).
+
+The whole remaining panel work is mechanical: read each error from
+`cargo check -p synth-ui-app`, fix the Slint syntax (verify against Slint
+1.19 parser grammar: `for x in expr: Element`, `if cond: Element`,
+single-value `padding`/`margin`), re-check. Target: all 16 panels compile.
+
 ## 10. Success Criteria (Definition of Done)
 
 1. `crates/synth-ui-app` builds with `cargo build` (no warnings); CI green.
